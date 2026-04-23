@@ -3,7 +3,7 @@ import { baseEntityColumns } from './base.schema';
 import {
   questionDifficultySchema,
   questionTypeSchema,
-} from '../../shared/schemas';
+} from './question.schema';
 
 // Tag names used by the domain (QuestionTagTypes constants)
 export const QUESTION_TAG_NAMES = {
