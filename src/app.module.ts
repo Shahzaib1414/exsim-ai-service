@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { LoggerModule } from 'nestjs-pino';
+import { randomUUID } from 'crypto';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { databaseConfig, validate } from './config';
@@ -12,6 +14,21 @@ import { HealthModule } from './modules/health';
       isGlobal: true,
       validate,
       load: [databaseConfig],
+    }),
+    LoggerModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => {
+        const isDev = config.get<string>('NODE_ENV') !== 'production';
+        return {
+          pinoHttp: {
+            level: config.get<string>('LOG_LEVEL') ?? 'info',
+            genReqId: () => randomUUID(),
+            transport: isDev
+              ? { target: 'pino-pretty', options: { singleLine: true } }
+              : undefined,
+          },
+        };
+      },
     }),
     DatabaseModule,
     HealthModule,
