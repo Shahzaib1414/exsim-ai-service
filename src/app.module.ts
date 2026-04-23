@@ -7,6 +7,7 @@ import { AppService } from './app.service';
 import { databaseConfig, validate } from './config';
 import { DatabaseModule } from './database/database.module';
 import { HealthModule } from './modules/health';
+import { ObservabilityModule } from './shared/modules';
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { HealthModule } from './modules/health';
     }),
     DatabaseModule,
     HealthModule,
+    ObservabilityModule,
   ],
   controllers: [AppController],
   providers: [AppService],
