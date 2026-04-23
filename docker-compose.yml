@@ -1,0 +1,63 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    ports:
+      - '5432:5432'
+    environment:
+      POSTGRES_DB: ExsimDb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  langfuse-server:
+    image: langfuse/langfuse:3
+    profiles: ['observability']
+    depends_on:
+      langfuse-db:
+        condition: service_healthy
+    ports:
+      - '3001:3000'
+    environment:
+      DATABASE_URL: postgresql://langfuse:langfuse_password@langfuse-db:5432/langfuse
+      NEXTAUTH_SECRET: local-dev-secret
+      NEXTAUTH_URL: http://localhost:3001
+      SALT: local-dev-salt
+      ENCRYPTION_KEY: 0000000000000000000000000000000000000000000000000000000000000000
+
+  langfuse-db:
+    image: postgres:16-alpine
+    profiles: ['observability']
+    environment:
+      POSTGRES_USER: langfuse
+      POSTGRES_PASSWORD: langfuse_password
+      POSTGRES_DB: langfuse
+    volumes:
+      - langfuse_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U langfuse']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+  redis_data:
+  langfuse_data:
