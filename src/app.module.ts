@@ -6,6 +6,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { databaseConfig, validate } from './config';
 import { DatabaseModule } from './database/database.module';
+import { GeneratorModule } from './modules/generator';
 import { HealthModule } from './modules/health';
 import { ObservabilityModule } from './shared/modules';
 
@@ -33,6 +34,7 @@ import { ObservabilityModule } from './shared/modules';
     }),
     DatabaseModule,
     HealthModule,
+    GeneratorModule,
     ObservabilityModule,
   ],
   controllers: [AppController],
