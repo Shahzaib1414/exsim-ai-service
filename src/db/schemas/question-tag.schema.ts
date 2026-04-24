@@ -1,8 +1,8 @@
 import { pgTable, text, uuid } from 'drizzle-orm/pg-core';
 import { baseEntityColumns } from './base.schema';
 import {
-  questionDifficultySchema,
-  questionTypeSchema,
+  QuestionDifficultySchema,
+  QuestionTypeSchema,
 } from './question.schema';
 
 // Tag names used by the domain (QuestionTagTypes constants)
@@ -15,8 +15,8 @@ export type TTagName = keyof typeof QUESTION_TAG_NAMES;
 
 // Tag value is either a QuestionType or QuestionDifficulty string
 export type TTagValue =
-  | (typeof questionTypeSchema.options)[number]
-  | (typeof questionDifficultySchema.options)[number];
+  | (typeof QuestionTypeSchema.options)[number]
+  | (typeof QuestionDifficultySchema.options)[number];
 
 export const questionTags = pgTable('QuestionTags', {
   ...baseEntityColumns,

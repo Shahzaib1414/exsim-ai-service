@@ -3,7 +3,7 @@ import { z } from 'zod';
 
 import { baseEntityColumns } from './base.schema';
 
-export const questionTypeSchema = z.enum([
+export const QuestionTypeSchema = z.enum([
   'Short',
   'Mcqs',
   'Comprehensive',
@@ -11,11 +11,11 @@ export const questionTypeSchema = z.enum([
   'Closed',
 ]);
 
-export const questionDifficultySchema = z.enum(['High', 'Medium', 'Low']);
+export const QuestionDifficultySchema = z.enum(['High', 'Medium', 'Low']);
 
-export const questionStatusSchema = z.enum(['Approved', 'Draft', 'Archived']);
+export const QuestionStatusSchema = z.enum(['Approved', 'Draft', 'Archived']);
 
-export const questions = pgTable('Questions', {
+export const Questions = pgTable('Questions', {
   ...baseEntityColumns,
   Statement: text('Statement').notNull(),
   Solution: text('Solution').notNull(),
@@ -24,9 +24,9 @@ export const questions = pgTable('Questions', {
   ParentQuestionId: uuid('ParentQuestionId'),
   Status: varchar('Status', { length: 20 })
     .notNull()
-    .$type<(typeof questionStatusSchema.options)[number]>(),
+    .$type<(typeof QuestionStatusSchema.options)[number]>(),
 });
 
-export type TQuestionType = z.infer<typeof questionTypeSchema>;
-export type TQuestionDifficulty = z.infer<typeof questionDifficultySchema>;
-export type TQuestionStatus = z.infer<typeof questionStatusSchema>;
+export type TQuestionType = z.infer<typeof QuestionTypeSchema>;
+export type TQuestionDifficulty = z.infer<typeof QuestionDifficultySchema>;
+export type TQuestionStatus = z.infer<typeof QuestionStatusSchema>;

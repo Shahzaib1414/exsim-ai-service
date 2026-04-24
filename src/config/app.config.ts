@@ -14,6 +14,7 @@ const envSchema = z.object({
   AZURE_OPENAI_KEY: z.string().min(1),
   AZURE_OPENAI_DEPLOYMENT_GPT4O: z.string().min(1),
   AZURE_OPENAI_DEPLOYMENT_EMBEDDING: z.string().min(1),
+  AZURE_OPENAI_RESOURCE: z.string().min(1),
 
   LANGFUSE_PUBLIC_KEY: z.string().min(1),
   LANGFUSE_SECRET_KEY: z.string().min(1),
