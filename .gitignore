@@ -32,8 +32,13 @@ lerna-debug.log*
 .vscode/*
 !.vscode/settings.json
 !.vscode/tasks.json
-!.vscode/launch.json
 !.vscode/extensions.json
+
+# Claude Code local settings
+.claude/settings.local.json
+
+# Yarn install state
+.yarn/install-state.gz
 
 # dotenv environment variable files
 .env

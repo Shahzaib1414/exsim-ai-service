@@ -19,7 +19,7 @@ export class GeneratorController {
         const result = await this.generatorService.generateOne(body);
         if (result.isErr()) {
           return {
-            status: result.error.status,
+            status: result.error.status as any,
             body: {
               status: result.error.status,
               message: HttpStatus[result.error.status],
