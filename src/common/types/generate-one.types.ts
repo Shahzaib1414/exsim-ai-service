@@ -8,4 +8,4 @@ export const GenerateOneSchema = z.object({
   difficulty: QuestionDifficultySchema,
 });
 
-export type TGenerateOneInputZod = z.infer<typeof GenerateOneSchema>;
+export type TGenerateOneInput = z.infer<typeof GenerateOneSchema>;

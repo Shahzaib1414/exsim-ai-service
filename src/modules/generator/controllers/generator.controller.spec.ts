@@ -4,8 +4,7 @@ import { ok, err } from 'neverthrow';
 
 import { GeneratorController } from './generator.controller';
 import { GeneratorService } from '../services/generator.service';
-import type { TQuestion } from '@/shared/schemas';
-import type { TErrorResult } from '../types/common.types';
+import type { TQuestion, TErrorResult } from '@/common/types';
 
 type RouteHandler = (args: {
   body: { subject: string; topic: string; difficulty: string };

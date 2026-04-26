@@ -1,5 +1,6 @@
 import { Global, Module } from '@nestjs/common';
-import { LangfuseService } from '../services/langfuse.service';
+
+import { LangfuseService } from '@/common/services/langfuse.service';
 
 @Global()
 @Module({
