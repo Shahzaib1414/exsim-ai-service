@@ -17,6 +17,7 @@ import { ValidatorModule } from './modules/validator';
 import { TaggerModule } from './modules/tagger';
 import { ObservabilityModule } from './common/modules';
 import { BatchModule } from './modules/batch';
+import { GroundingModule } from './modules/grounding';
 
 @Module({
   imports: [
@@ -61,6 +62,7 @@ import { BatchModule } from './modules/batch';
     HealthModule,
     GeneratorModule,
     BatchModule,
+    GroundingModule,
     ObservabilityModule,
   ],
   controllers: [AppController],

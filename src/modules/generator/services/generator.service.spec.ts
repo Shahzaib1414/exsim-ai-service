@@ -11,6 +11,7 @@ import { QuestionService } from '@/modules/question/services/question.service';
 import { DeduplicatorService } from '@/modules/deduplicator/services/deduplicator.service';
 import { ValidatorService } from '@/modules/validator/services/validator.service';
 import { TaggerService } from '@/modules/tagger/services/tagger.service';
+import { GroundingService } from '@/modules/grounding/services/grounding.service';
 import { DRIZZLE_CLIENT } from '@/database/database.module';
 import { buildEmbeddingText } from '@/common/types';
 import type { TQuestion } from '@/common/types';
@@ -62,6 +63,10 @@ const mockTaggerService = {
   tag: jest.fn(),
 };
 
+const mockGroundingService = {
+  retrieveRelevantChunks: jest.fn().mockResolvedValue(ok([])),
+};
+
 const mockInsertValues = jest.fn().mockResolvedValue(undefined);
 const mockDb = {
   insert: jest.fn(() => ({ values: mockInsertValues })),
@@ -90,6 +95,7 @@ describe('GeneratorService', () => {
         { provide: DeduplicatorService, useValue: mockDeduplicatorService },
         { provide: ValidatorService, useValue: mockValidatorService },
         { provide: TaggerService, useValue: mockTaggerService },
+        { provide: GroundingService, useValue: mockGroundingService },
         { provide: DRIZZLE_CLIENT, useValue: mockDb },
         {
           provide: getLoggerToken(GeneratorService.name),
@@ -401,7 +407,10 @@ describe('GeneratorService', () => {
         status: HttpStatus.INTERNAL_SERVER_ERROR,
         message: 'failed to generate question',
       });
-      expect(mockEmbeddingService.embedText).not.toHaveBeenCalled();
+      // embedText is called once for grounding context, but never for question embedding
+      expect(mockEmbeddingService.embedText).not.toHaveBeenCalledWith(
+        buildEmbeddingText(validQuestion.stem, validQuestion.options),
+      );
       expect(mockQuestionService.saveQuestion).not.toHaveBeenCalled();
     });
 
