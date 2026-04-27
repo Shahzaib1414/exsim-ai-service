@@ -21,6 +21,7 @@ import { QuestionService } from '@/modules/question/services/question.service';
 import { DeduplicatorService } from '@/modules/deduplicator/services/deduplicator.service';
 import { ValidatorService } from '@/modules/validator/services/validator.service';
 import { TaggerService } from '@/modules/tagger/services/tagger.service';
+import { GroundingService } from '@/modules/grounding/services/grounding.service';
 import { QuestionEmbeddings } from '@/db/schemas/question-embedding.schema';
 import { serializeError } from '@/utils';
 import type { TGenerateOneInput } from '@/common/types';
@@ -41,6 +42,7 @@ export class GeneratorService extends BaseService {
     private readonly deduplicatorService: DeduplicatorService,
     private readonly validatorService: ValidatorService,
     private readonly taggerService: TaggerService,
+    private readonly groundingService: GroundingService,
   ) {
     super(db);
 
@@ -59,9 +61,17 @@ export class GeneratorService extends BaseService {
   }: TGenerateOneInput): Promise<
     Result<TQuestion & { questionId: string }, TErrorResult>
   > {
+    // Retrieve grounding context once before the retry loop
+    const groundingContext = await this.fetchGroundingContext(subject, topic);
+
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       // Step 1: Generate question via LLM
-      const llmResult = await this.callLlm(subject, topic, difficulty);
+      const llmResult = await this.callLlm(
+        subject,
+        topic,
+        difficulty,
+        groundingContext,
+      );
       if (llmResult.isErr()) return err(llmResult.error);
       const question = llmResult.value;
 
@@ -152,12 +162,40 @@ export class GeneratorService extends BaseService {
     });
   }
 
+  private async fetchGroundingContext(
+    subject: string,
+    topic: string,
+  ): Promise<string[]> {
+    try {
+      const queryEmbedResult = await this.embeddingService.embedText(
+        `${subject} ${topic}`,
+      );
+      if (queryEmbedResult.isErr()) return [];
+
+      const chunksResult = await this.groundingService.retrieveRelevantChunks(
+        queryEmbedResult.value,
+        subject,
+        topic,
+      );
+      return chunksResult.isOk() ? chunksResult.value : [];
+    } catch {
+      // Grounding failure must never abort generation
+      return [];
+    }
+  }
+
   private async callLlm(
     subject: string,
     topic: string,
     difficulty: string,
+    groundingContext: string[] = [],
   ): Promise<Result<TQuestion, TErrorResult>> {
-    const prompt = `Generate a multiple-choice exam question for the subject "${subject}", topic "${topic}", difficulty level "${difficulty}".
+    const groundingBlock =
+      groundingContext.length > 0
+        ? `Use the following syllabus content as context when generating the question:\n<grounding>\n${groundingContext.join('\n\n---\n\n')}\n</grounding>\n\n`
+        : '';
+
+    const prompt = `${groundingBlock}Generate a multiple-choice exam question for the subject "${subject}", topic "${topic}", difficulty level "${difficulty}".
 The question must have exactly 4 distinct answer options.
 Return the index (0-3) of the correct answer and a brief explanation of why it is correct.`;
 
