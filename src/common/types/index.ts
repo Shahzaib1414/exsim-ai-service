@@ -4,3 +4,5 @@ export * from './embedding.types';
 export * from './question.types';
 export * from './generate-one.types';
 export * from './deduplicator.types';
+export * from './validator.types';
+export * from './tagger.types';
