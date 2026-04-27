@@ -1,7 +1,6 @@
 import { initContract } from '@ts-rest/core';
 
-import { GenerateOneSchema } from '@/modules/generator/schemas';
-import { QuestionSchema } from '@/shared/schemas';
+import { GenerateOneSchema, QuestionSchema } from '@/common/types';
 import {
   BadRequestError,
   InternalError,

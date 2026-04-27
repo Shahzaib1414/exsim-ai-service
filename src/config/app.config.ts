@@ -21,6 +21,8 @@ const envSchema = z.object({
   LANGFUSE_BASE_URL: z.string().url(),
 
   APPLICATIONINSIGHTS_CONNECTION_STRING: z.string().min(1),
+
+  DOTNET_API_URL: z.string().url(),
 });
 
 export type TEnv = z.infer<typeof envSchema>;

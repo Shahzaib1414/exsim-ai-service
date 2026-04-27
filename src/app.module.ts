@@ -8,7 +8,8 @@ import { databaseConfig, validate } from './config';
 import { DatabaseModule } from './database/database.module';
 import { GeneratorModule } from './modules/generator';
 import { HealthModule } from './modules/health';
-import { ObservabilityModule } from './shared/modules';
+import { EmbeddingModule } from './modules/embedding';
+import { ObservabilityModule } from './common/modules';
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { ObservabilityModule } from './shared/modules';
       },
     }),
     DatabaseModule,
+    EmbeddingModule,
     HealthModule,
     GeneratorModule,
     ObservabilityModule,

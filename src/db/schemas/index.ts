@@ -2,3 +2,7 @@ export * from './base.schema';
 export * from './question.schema';
 export * from './question-tag.schema';
 export * from './question-option.schema';
+export * from './question-embedding.schema';
+export * from './grounding-embedding.schema';
+export * from './batch.schema';
+export * from './batch-item.schema';
