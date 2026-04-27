@@ -9,6 +9,7 @@ import { DatabaseModule } from './database/database.module';
 import { GeneratorModule } from './modules/generator';
 import { HealthModule } from './modules/health';
 import { EmbeddingModule } from './modules/embedding';
+import { DeduplicatorModule } from './modules/deduplicator';
 import { ObservabilityModule } from './common/modules';
 
 @Module({
@@ -35,6 +36,7 @@ import { ObservabilityModule } from './common/modules';
     }),
     DatabaseModule,
     EmbeddingModule,
+    DeduplicatorModule,
     HealthModule,
     GeneratorModule,
     ObservabilityModule,
