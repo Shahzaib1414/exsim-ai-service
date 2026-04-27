@@ -51,6 +51,12 @@ export const getBatchItemsQuerySchema = z.object({
   status: BatchItemStatusSchema.optional(),
 });
 
+export const sampleBatchSchema = z.object({
+  sampleSize: z.number().int().min(1).max(10).default(3),
+});
+
+export type TSampleBatch = z.infer<typeof sampleBatchSchema>;
+
 export type TBatchItemJobData = {
   batchItemId: string;
   batchId: string;

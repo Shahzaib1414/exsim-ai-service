@@ -6,3 +6,4 @@ export * from './generate-one.types';
 export * from './deduplicator.types';
 export * from './validator.types';
 export * from './tagger.types';
+export * from './batch.types';
