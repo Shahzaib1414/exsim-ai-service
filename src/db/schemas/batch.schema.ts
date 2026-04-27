@@ -6,6 +6,7 @@ import { QuestionDifficultySchema } from './question.schema';
 
 export const BatchStatusSchema = z.enum([
   'pending',
+  'sampling',
   'running',
   'completed',
   'failed',

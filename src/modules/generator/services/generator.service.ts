@@ -56,11 +56,13 @@ export class GeneratorService extends BaseService {
     subject,
     topic,
     difficulty,
-  }: TGenerateOneInput): Promise<Result<TQuestion, TErrorResult>> {
+  }: TGenerateOneInput): Promise<
+    Result<TQuestion & { questionId: string }, TErrorResult>
+  > {
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       // Step 1: Generate question via LLM
       const llmResult = await this.callLlm(subject, topic, difficulty);
-      if (llmResult.isErr()) return llmResult;
+      if (llmResult.isErr()) return err(llmResult.error);
       const question = llmResult.value;
 
       // Step 2: Generate embedding
@@ -140,13 +142,13 @@ export class GeneratorService extends BaseService {
         return err(storeResult.error);
       }
 
-      return ok(question);
+      return ok({ ...question, questionId });
     }
 
     // Unreachable — loop always returns, satisfies TypeScript
     return err({
       status: HttpStatus.INTERNAL_SERVER_ERROR,
-      message: 'failed to generate question',
+      message: 'failed to generate question after max attempts',
     });
   }
 

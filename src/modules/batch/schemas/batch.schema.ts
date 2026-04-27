@@ -1,0 +1,60 @@
+import { z } from 'zod';
+
+import { BatchStatusSchema } from '@/db/schemas/batch.schema';
+import { BatchItemStatusSchema } from '@/db/schemas/batch-item.schema';
+import { QuestionDifficultySchema } from '@/db/schemas/question.schema';
+
+export const createBatchSchema = z.object({
+  subject: z.string().min(1),
+  topic: z.string().min(1),
+  difficulty: QuestionDifficultySchema,
+  count: z.number().int().min(1).max(100),
+});
+
+export type TCreateBatch = z.infer<typeof createBatchSchema>;
+
+export const batchItemResponseSchema = z.object({
+  id: z.string().uuid(),
+  status: BatchItemStatusSchema,
+  questionId: z.string().uuid().nullable(),
+  attemptCount: z.number(),
+  errorMessage: z.string().nullable(),
+});
+
+export const batchResponseSchema = z.object({
+  id: z.string().uuid(),
+  subject: z.string(),
+  topic: z.string(),
+  difficulty: QuestionDifficultySchema,
+  requestedCount: z.number(),
+  completedCount: z.number(),
+  failedCount: z.number(),
+  status: BatchStatusSchema,
+});
+
+export const batchWithItemsResponseSchema = batchResponseSchema.extend({
+  items: z.array(batchItemResponseSchema),
+});
+
+export type TBatchResponse = z.infer<typeof batchResponseSchema>;
+export type TBatchWithItemsResponse = z.infer<
+  typeof batchWithItemsResponseSchema
+>;
+export type TBatchItemResponse = z.infer<typeof batchItemResponseSchema>;
+
+export const listBatchesQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+});
+
+export const getBatchItemsQuerySchema = z.object({
+  status: BatchItemStatusSchema.optional(),
+});
+
+export type TBatchItemJobData = {
+  batchItemId: string;
+  batchId: string;
+  subject: string;
+  topic: string;
+  difficulty: z.infer<typeof QuestionDifficultySchema>;
+};
