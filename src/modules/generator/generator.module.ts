@@ -11,5 +11,6 @@ import { GeneratorService } from './services/generator.service';
   imports: [QuestionModule, DeduplicatorModule, ValidatorModule, TaggerModule],
   controllers: [GeneratorController],
   providers: [GeneratorService],
+  exports: [GeneratorService],
 })
 export class GeneratorModule {}

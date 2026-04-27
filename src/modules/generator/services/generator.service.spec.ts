@@ -139,7 +139,10 @@ describe('GeneratorService', () => {
       });
 
       expect(result.isOk()).toBe(true);
-      expect(result._unsafeUnwrap()).toEqual(validQuestion);
+      expect(result._unsafeUnwrap()).toEqual({
+        ...validQuestion,
+        questionId: mockQuestionId,
+      });
     });
 
     it('should call embedText with the combined stem+options text', async () => {

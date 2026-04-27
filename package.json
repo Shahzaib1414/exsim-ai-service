@@ -23,7 +23,10 @@
   "dependencies": {
     "@ai-sdk/azure": "^3.0.54",
     "@anatine/zod-openapi": "^2.2.8",
+    "@bull-board/express": "^7.0.0",
+    "@bull-board/nestjs": "^7.0.0",
     "@nestjs/axios": "^4.0.1",
+    "@nestjs/bullmq": "^11.0.4",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.4",
     "@nestjs/core": "^11.0.1",
@@ -33,6 +36,7 @@
     "ai": "^6.0.168",
     "applicationinsights": "^3.14.0",
     "axios": "^1.15.2",
+    "bullmq": "^5.76.2",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
     "drizzle-orm": "^0.45.2",

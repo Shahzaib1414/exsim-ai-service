@@ -1,6 +1,9 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { LoggerModule } from 'nestjs-pino';
+import { BullModule } from '@nestjs/bullmq';
+import { BullBoardModule } from '@bull-board/nestjs';
+import { ExpressAdapter } from '@bull-board/express';
 import { randomUUID } from 'crypto';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -13,6 +16,7 @@ import { DeduplicatorModule } from './modules/deduplicator';
 import { ValidatorModule } from './modules/validator';
 import { TaggerModule } from './modules/tagger';
 import { ObservabilityModule } from './common/modules';
+import { BatchModule } from './modules/batch';
 
 @Module({
   imports: [
@@ -36,6 +40,19 @@ import { ObservabilityModule } from './common/modules';
         };
       },
     }),
+    BullModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
+        connection: { url: config.get<string>('REDIS_URL') },
+      }),
+    }),
+    BullBoardModule.forRootAsync({
+      useFactory: () => ({
+        route: '/admin/queues',
+        adapter: ExpressAdapter,
+      }),
+    }),
     DatabaseModule,
     EmbeddingModule,
     DeduplicatorModule,
@@ -43,6 +60,7 @@ import { ObservabilityModule } from './common/modules';
     TaggerModule,
     HealthModule,
     GeneratorModule,
+    BatchModule,
     ObservabilityModule,
   ],
   controllers: [AppController],
