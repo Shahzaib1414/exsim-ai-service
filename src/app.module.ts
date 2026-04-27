@@ -10,6 +10,8 @@ import { GeneratorModule } from './modules/generator';
 import { HealthModule } from './modules/health';
 import { EmbeddingModule } from './modules/embedding';
 import { DeduplicatorModule } from './modules/deduplicator';
+import { ValidatorModule } from './modules/validator';
+import { TaggerModule } from './modules/tagger';
 import { ObservabilityModule } from './common/modules';
 
 @Module({
@@ -37,6 +39,8 @@ import { ObservabilityModule } from './common/modules';
     DatabaseModule,
     EmbeddingModule,
     DeduplicatorModule,
+    ValidatorModule,
+    TaggerModule,
     HealthModule,
     GeneratorModule,
     ObservabilityModule,

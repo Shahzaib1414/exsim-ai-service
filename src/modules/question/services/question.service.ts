@@ -17,6 +17,7 @@ import {
   CreateQuestionPayloadSchema,
   TSaveQuestionResponse,
   TErrorResult,
+  TExtraTag,
   TOPIC_TAG_NAME,
   DIFFICULTY_TAG_NAME,
   TYPE_TAG_NAME,
@@ -43,6 +44,7 @@ export class QuestionService extends BaseService {
     question: TQuestion,
     topic: string,
     difficulty: z.infer<typeof QuestionDifficultySchema>,
+    extraTags: TExtraTag[] = [],
   ): Promise<Result<TSaveQuestionResponse, TErrorResult>> {
     const payload: TCreateQuestionPayload = CreateQuestionPayloadSchema.parse({
       statement: question.stem,
@@ -57,6 +59,7 @@ export class QuestionService extends BaseService {
         { name: TOPIC_TAG_NAME, value: topic },
         { name: DIFFICULTY_TAG_NAME, value: difficulty },
         { name: TYPE_TAG_NAME, value: QUESTION_TYPE },
+        ...extraTags,
       ],
     });
 
