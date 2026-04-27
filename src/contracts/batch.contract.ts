@@ -7,9 +7,11 @@ import {
   createBatchSchema,
   getBatchItemsQuerySchema,
   listBatchesQuerySchema,
-} from '@/modules/batch/schemas/batch.schema';
+  sampleBatchSchema,
+} from '@/common/types';
 import {
   BadRequestError,
+  ConflictError,
   InternalError,
   NotFoundError,
 } from '@/common/types/error-responses.type';
@@ -57,6 +59,19 @@ export const batchContract = c.router(
       responses: {
         200: batchWithItemsResponseSchema,
         404: NotFoundError,
+        500: InternalError,
+      },
+    },
+    sampleBatch: {
+      summary:
+        'Enqueue a sample subset of items before committing the full batch',
+      method: 'POST',
+      path: '/:id/sample',
+      body: sampleBatchSchema,
+      responses: {
+        200: batchResponseSchema,
+        404: NotFoundError,
+        409: ConflictError,
         500: InternalError,
       },
     },

@@ -19,7 +19,7 @@ import {
   TBatchResponse,
   TBatchWithItemsResponse,
   TBatchItemJobData,
-} from '../schemas/batch.schema';
+} from '@/common/types';
 
 @Injectable()
 export class BatchService extends BaseService {
