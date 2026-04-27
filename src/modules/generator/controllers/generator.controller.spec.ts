@@ -41,7 +41,9 @@ describe('GeneratorController', () => {
   });
 
   it('should return status 201 with question on success', async () => {
-    generatorService.generateOne.mockResolvedValue(ok(validQuestion));
+    generatorService.generateOne.mockResolvedValue(
+      ok({ ...validQuestion, questionId: expect.any(String) }),
+    );
 
     const result = controller.generateOne();
     const response = await (result as unknown as RouteHandler)({
@@ -49,7 +51,10 @@ describe('GeneratorController', () => {
     });
 
     expect(response.status).toBe(201);
-    expect(response.body).toEqual(validQuestion);
+    expect(response.body).toEqual({
+      ...validQuestion,
+      questionId: expect.any(String),
+    });
   });
 
   it('should return status 500 when service returns error', async () => {
