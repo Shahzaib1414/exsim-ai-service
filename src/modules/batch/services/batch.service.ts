@@ -1,6 +1,6 @@
 import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { Queue } from 'bullmq';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, sum } from 'drizzle-orm';
 import { err, ok, Result } from 'neverthrow';
 import { randomUUID } from 'crypto';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
@@ -10,9 +10,9 @@ import { DRIZZLE_CLIENT } from '@/database/database.module';
 import type { DrizzleClient } from '@/db';
 import { Batches, TBatchSelect } from '@/db/schemas/batch.schema';
 import { BatchItems, TBatchItemSelect } from '@/db/schemas/batch-item.schema';
-import type { TErrorResult } from '@/common/types';
-import { serializeError } from '@/utils';
-import { InjectBatchItemQueue } from '@/queues';
+import type { TErrorResult, TLlmUsage } from '@/common/types';
+import { serializeError, calculateGpt4oCost, formatCostUsd } from '@/utils';
+import { InjectBatchItemQueue, PROCESS_BATCH_ITEM_JOB } from '@/queues';
 import { createMediumFrequencyJobOptions } from '@/common/queue.types';
 import {
   TCreateBatch,
@@ -20,6 +20,7 @@ import {
   TBatchWithItemsResponse,
   TBatchItemJobData,
 } from '@/common/types';
+import { AppInsightsMetricsService } from '@/common/services';
 
 @Injectable()
 export class BatchService extends BaseService {
@@ -29,6 +30,7 @@ export class BatchService extends BaseService {
     private readonly batchItemQueue: Queue<TBatchItemJobData>,
     @InjectPinoLogger(BatchService.name)
     private readonly logger: PinoLogger,
+    private readonly metricsService: AppInsightsMetricsService,
   ) {
     super(db);
   }
@@ -67,7 +69,7 @@ export class BatchService extends BaseService {
       await Promise.all(
         itemIds.map((itemId) =>
           this.batchItemQueue.add(
-            'process-batch-item',
+            PROCESS_BATCH_ITEM_JOB,
             {
               batchItemId: itemId,
               batchId,
@@ -94,6 +96,10 @@ export class BatchService extends BaseService {
         completedCount: 0,
         failedCount: 0,
         status: 'running',
+        totalPromptTokens: 0,
+        totalCompletionTokens: 0,
+        totalTokens: 0,
+        estimatedCostUsd: '0.000000',
       });
     } catch (error) {
       this.logger.error({
@@ -196,13 +202,7 @@ export class BatchService extends BaseService {
 
       return ok({
         ...this.toBatchResponse(batch, items),
-        items: items.map((item) => ({
-          id: item.Id,
-          status: item.Status,
-          questionId: item.QuestionId ?? null,
-          attemptCount: item.AttemptCount,
-          errorMessage: item.ErrorMessage ?? null,
-        })),
+        items: items.map((item) => this.toBatchItemResponse(item)),
       });
     } catch (error) {
       this.logger.error({
@@ -249,11 +249,18 @@ export class BatchService extends BaseService {
   async markItemGenerated(
     itemId: string,
     questionId: string,
+    usage: TLlmUsage,
   ): Promise<Result<void, TErrorResult>> {
     try {
       await this.db
         .update(BatchItems)
-        .set({ Status: 'generated', QuestionId: questionId })
+        .set({
+          Status: 'generated',
+          QuestionId: questionId,
+          PromptTokens: usage.promptTokens,
+          CompletionTokens: usage.completionTokens,
+          TotalTokens: usage.totalTokens,
+        })
         .where(eq(BatchItems.Id, itemId));
       return ok(undefined);
     } catch (error) {
@@ -320,10 +327,41 @@ export class BatchService extends BaseService {
       const anyFailed = items.some((i) => i.Status === 'failed');
       const newStatus = anyFailed ? 'failed' : 'completed';
 
+      // Aggregate token counts across all items
+      const tokenTotals = await this.db
+        .select({
+          totalPromptTokens: sum(BatchItems.PromptTokens),
+          totalCompletionTokens: sum(BatchItems.CompletionTokens),
+          totalTokens: sum(BatchItems.TotalTokens),
+        })
+        .from(BatchItems)
+        .where(eq(BatchItems.BatchId, batchId));
+
+      const pt = Number(tokenTotals[0]?.totalPromptTokens ?? 0);
+      const ct = Number(tokenTotals[0]?.totalCompletionTokens ?? 0);
+      const tt = Number(tokenTotals[0]?.totalTokens ?? 0);
+      const estimatedCostUsd = formatCostUsd(
+        calculateGpt4oCost({
+          promptTokens: pt,
+          completionTokens: ct,
+          totalTokens: tt,
+        }),
+      );
+
       await this.db
         .update(Batches)
-        .set({ Status: newStatus })
+        .set({
+          Status: newStatus,
+          TotalPromptTokens: pt,
+          TotalCompletionTokens: ct,
+          TotalTokens: tt,
+          EstimatedCostUsd: estimatedCostUsd,
+        })
         .where(eq(Batches.Id, batchId));
+
+      const failedCount = items.filter((i) => i.Status === 'failed').length;
+      const failureRate = failedCount / items.length;
+      this.metricsService.trackBatchCompletion(batchId, failureRate);
 
       return ok(undefined);
     } catch (error) {
@@ -351,6 +389,23 @@ export class BatchService extends BaseService {
       completedCount: items.filter((i) => i.Status === 'generated').length,
       failedCount: items.filter((i) => i.Status === 'failed').length,
       status: batch.Status,
+      totalPromptTokens: batch.TotalPromptTokens,
+      totalCompletionTokens: batch.TotalCompletionTokens,
+      totalTokens: batch.TotalTokens,
+      estimatedCostUsd: batch.EstimatedCostUsd,
+    };
+  }
+
+  private toBatchItemResponse(item: TBatchItemSelect) {
+    return {
+      id: item.Id,
+      status: item.Status,
+      questionId: item.QuestionId ?? null,
+      attemptCount: item.AttemptCount,
+      errorMessage: item.ErrorMessage ?? null,
+      promptTokens: item.PromptTokens,
+      completionTokens: item.CompletionTokens,
+      totalTokens: item.TotalTokens,
     };
   }
 }

@@ -53,7 +53,7 @@ export class GroundingService extends BaseService {
       rows.push({
         Id: randomUUID(),
         ChunkText: chunk.text,
-        Embedding: embedResult.value,
+        Embedding: embedResult.value.embedding,
         ModelName: this.embeddingService.modelName,
         SourceDoc: chunk.sourceDoc,
         PageNumber: chunk.pageNumber,

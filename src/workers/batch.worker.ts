@@ -6,6 +6,8 @@ import { BATCH_ITEM_QUEUE } from '@/queues';
 import { TBatchItemJobData } from '@/common/types';
 import { GeneratorService } from '@/modules/generator/services/generator.service';
 import { BatchService } from '@/modules/batch/services/batch.service';
+import { AppInsightsMetricsService } from '@/common/services';
+import { LangfuseService } from '@/common/services/langfuse.service';
 import { serializeError } from '@/utils';
 import { BaseWorker } from './base.worker';
 
@@ -15,12 +17,15 @@ export class BatchWorker extends BaseWorker {
   override async process(job: Job<TBatchItemJobData>): Promise<void> {
     const generatorService = this.resolve(GeneratorService);
     const batchService = this.resolve(BatchService);
+    const metricsService = this.resolve(AppInsightsMetricsService);
+    const langfuseService = this.resolve(LangfuseService);
 
     const { batchItemId, batchId, subject, topic, difficulty } = job.data;
     const logContext = {
       queueName: job.queueName,
       jobId: job.id,
       jobName: job.name,
+      data: job.data,
     };
 
     try {
@@ -52,19 +57,29 @@ export class BatchWorker extends BaseWorker {
         },
       });
 
+      const trace = langfuseService.client.trace({
+        id: batchItemId,
+        name: 'batch-item',
+        metadata: { batchId, subject, topic, difficulty },
+      });
+
       const result = await generatorService.generateOne({
         subject,
         topic,
         difficulty,
+        trace,
       });
 
       if (result.isOk()) {
-        await batchService.markItemGenerated(
-          batchItemId,
-          result.value.questionId,
-        );
+        const { questionId, usage } = result.value;
+        trace.update({ output: { questionId } });
+        await batchService.markItemGenerated(batchItemId, questionId, usage);
+        metricsService.trackBatchItemSuccess(batchId);
+        metricsService.trackLlmTokenUsage('generator', usage);
       } else {
+        trace.update({ output: { error: result.error.message } });
         await batchService.markItemFailed(batchItemId, result.error.message);
+        metricsService.trackBatchItemFailure(batchId, result.error.message);
         throw new Error(result.error.message);
       }
 

@@ -19,6 +19,9 @@ export const batchItemResponseSchema = z.object({
   questionId: z.string().uuid().nullable(),
   attemptCount: z.number(),
   errorMessage: z.string().nullable(),
+  promptTokens: z.number().int().default(0),
+  completionTokens: z.number().int().default(0),
+  totalTokens: z.number().int().default(0),
 });
 
 export const batchResponseSchema = z.object({
@@ -30,6 +33,10 @@ export const batchResponseSchema = z.object({
   completedCount: z.number(),
   failedCount: z.number(),
   status: BatchStatusSchema,
+  totalPromptTokens: z.number().int().default(0),
+  totalCompletionTokens: z.number().int().default(0),
+  totalTokens: z.number().int().default(0),
+  estimatedCostUsd: z.string().default('0.000000'),
 });
 
 export const batchWithItemsResponseSchema = batchResponseSchema.extend({

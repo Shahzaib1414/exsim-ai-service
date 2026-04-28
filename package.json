@@ -31,6 +31,7 @@
     "@nestjs/config": "^4.0.4",
     "@nestjs/core": "^11.0.1",
     "@nestjs/platform-express": "^11.0.1",
+    "@nestjs/throttler": "^6.5.0",
     "@ts-rest/core": "^3.52.1",
     "@ts-rest/nest": "^3.52.1",
     "ai": "^6.0.168",

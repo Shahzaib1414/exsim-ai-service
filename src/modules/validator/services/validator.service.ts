@@ -4,6 +4,7 @@ import { createAzure } from '@ai-sdk/azure';
 import { generateObject } from 'ai';
 import { ok, err, Result } from 'neverthrow';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
+import type { ILangfuseTrace } from '@/common/types';
 
 import { TEnv } from '@/config';
 import {
@@ -11,8 +12,11 @@ import {
   TQuestion,
   ValidationResultSchema,
   TValidationResult,
+  TLlmUsage,
+  ZERO_LLM_USAGE,
 } from '@/common/types';
-import { serializeError } from '@/utils';
+import { serializeError, withLlmRetry } from '@/utils';
+import { AppInsightsMetricsService } from '@/common/services';
 
 @Injectable()
 export class ValidatorService {
@@ -22,6 +26,7 @@ export class ValidatorService {
     private readonly config: ConfigService<TEnv, true>,
     @InjectPinoLogger(ValidatorService.name)
     private readonly logger: PinoLogger,
+    private readonly metricsService: AppInsightsMetricsService,
   ) {
     const azure = createAzure({
       resourceName: config.get('AZURE_OPENAI_RESOURCE'),
@@ -33,11 +38,12 @@ export class ValidatorService {
 
   async validate(
     question: TQuestion,
-  ): Promise<Result<TValidationResult, TErrorResult>> {
+    trace?: ILangfuseTrace,
+  ): Promise<Result<TValidationResult & { usage: TLlmUsage }, TErrorResult>> {
     // Stage 1: rule-based checks (no LLM)
     const ruleIssues = this.runRuleChecks(question);
     if (ruleIssues.length > 0) {
-      return ok({ isValid: false, issues: ruleIssues });
+      return ok({ isValid: false, issues: ruleIssues, usage: ZERO_LLM_USAGE });
     }
 
     // Stage 2: LLM quality check
@@ -57,14 +63,46 @@ Assess the following criteria:
 
 Return isValid=true only if all criteria pass. List any specific issues found.`;
 
+    const generation = trace?.generation({
+      name: 'llm:validate-question',
+      input: { prompt },
+    });
+
     try {
-      const result = await generateObject({
-        model: this.model,
-        schema: ValidationResultSchema,
-        prompt,
+      const result = await withLlmRetry(
+        (idempotencyKey) =>
+          generateObject({
+            model: this.model,
+            schema: ValidationResultSchema,
+            prompt,
+            headers: { 'Idempotency-Key': idempotencyKey },
+          }),
+        {
+          onRetry: (attempt) =>
+            this.metricsService.trackLlmRetry('validator', attempt),
+        },
+      );
+
+      const promptTokens = result.usage.inputTokens ?? 0;
+      const completionTokens = result.usage.outputTokens ?? 0;
+      const usage: TLlmUsage = {
+        promptTokens,
+        completionTokens,
+        totalTokens: promptTokens + completionTokens,
+      };
+
+      generation?.end({
+        output: result.object,
+        usage: {
+          input: usage.promptTokens,
+          output: usage.completionTokens,
+          total: usage.totalTokens,
+        },
       });
-      return ok(result.object);
+
+      return ok({ ...result.object, usage });
     } catch (error) {
+      generation?.end({ output: { error: serializeError(error) } });
       this.logger.error({
         message: 'Failed to validate question via LLM',
         data: { error: serializeError(error) },

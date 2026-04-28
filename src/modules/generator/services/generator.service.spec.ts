@@ -12,6 +12,7 @@ import { DeduplicatorService } from '@/modules/deduplicator/services/deduplicato
 import { ValidatorService } from '@/modules/validator/services/validator.service';
 import { TaggerService } from '@/modules/tagger/services/tagger.service';
 import { GroundingService } from '@/modules/grounding/services/grounding.service';
+import { AppInsightsMetricsService } from '@/common/services';
 import { DRIZZLE_CLIENT } from '@/database/database.module';
 import { buildEmbeddingText } from '@/common/types';
 import type { TQuestion } from '@/common/types';
@@ -81,6 +82,7 @@ const validQuestion: TQuestion = {
 
 const mockEmbedding = new Array(1536).fill(0.1);
 const mockQuestionId = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890';
+const zeroUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
 
 describe('GeneratorService', () => {
   let service: GeneratorService;
@@ -101,6 +103,15 @@ describe('GeneratorService', () => {
           provide: getLoggerToken(GeneratorService.name),
           useValue: mockLogger,
         },
+        {
+          provide: AppInsightsMetricsService,
+          useValue: {
+            trackBatchItemSuccess: jest.fn(),
+            trackBatchItemFailure: jest.fn(),
+            trackLlmTokenUsage: jest.fn(),
+            trackLlmRetry: jest.fn(),
+          },
+        },
       ],
     }).compile();
 
@@ -113,15 +124,18 @@ describe('GeneratorService', () => {
 
   describe('happy path', () => {
     beforeEach(() => {
-      jest
-        .spyOn(aiSdk, 'generateObject')
-        .mockResolvedValue({ object: validQuestion } as never);
-      mockEmbeddingService.embedText.mockResolvedValue(ok(mockEmbedding));
+      jest.spyOn(aiSdk, 'generateObject').mockResolvedValue({
+        object: validQuestion,
+        usage: { inputTokens: 5, outputTokens: 10 },
+      } as never);
+      mockEmbeddingService.embedText.mockResolvedValue(
+        ok({ embedding: mockEmbedding, tokens: 10 }),
+      );
       mockDeduplicatorService.checkUniqueness.mockResolvedValue(
         ok({ isUnique: true, similarQuestionIds: [] }),
       );
       mockValidatorService.validate.mockResolvedValue(
-        ok({ isValid: true, issues: [] }),
+        ok({ isValid: true, issues: [], usage: zeroUsage }),
       );
       mockTaggerService.tag.mockResolvedValue(
         ok({
@@ -129,6 +143,7 @@ describe('GeneratorService', () => {
             { name: 'bloomsLevel', value: 'Apply' },
             { name: 'gradeLevel', value: 'Grade 10' },
           ],
+          usage: zeroUsage,
         }),
       );
       mockQuestionService.saveQuestion.mockResolvedValue(
@@ -145,10 +160,12 @@ describe('GeneratorService', () => {
       });
 
       expect(result.isOk()).toBe(true);
-      expect(result._unsafeUnwrap()).toEqual({
-        ...validQuestion,
-        questionId: mockQuestionId,
-      });
+      expect(result._unsafeUnwrap()).toEqual(
+        expect.objectContaining({
+          ...validQuestion,
+          questionId: mockQuestionId,
+        }),
+      );
     });
 
     it('should call embedText with the combined stem+options text', async () => {
@@ -162,7 +179,10 @@ describe('GeneratorService', () => {
         validQuestion.stem,
         validQuestion.options,
       );
-      expect(mockEmbeddingService.embedText).toHaveBeenCalledWith(expectedText);
+      expect(mockEmbeddingService.embedText).toHaveBeenCalledWith(
+        expectedText,
+        undefined,
+      );
     });
 
     it('should call saveQuestion with the question, topic, and difficulty', async () => {
@@ -202,10 +222,13 @@ describe('GeneratorService', () => {
 
   describe('deduplication retry loop', () => {
     it('should retry and succeed when duplicate on first 2 attempts then unique on 3rd', async () => {
-      jest
-        .spyOn(aiSdk, 'generateObject')
-        .mockResolvedValue({ object: validQuestion } as never);
-      mockEmbeddingService.embedText.mockResolvedValue(ok(mockEmbedding));
+      jest.spyOn(aiSdk, 'generateObject').mockResolvedValue({
+        object: validQuestion,
+        usage: { inputTokens: 5, outputTokens: 10 },
+      } as never);
+      mockEmbeddingService.embedText.mockResolvedValue(
+        ok({ embedding: mockEmbedding, tokens: 10 }),
+      );
       mockDeduplicatorService.checkUniqueness
         .mockResolvedValueOnce(
           ok({ isUnique: false, similarQuestionIds: ['existing-id'] }),
@@ -214,6 +237,12 @@ describe('GeneratorService', () => {
           ok({ isUnique: false, similarQuestionIds: ['existing-id'] }),
         )
         .mockResolvedValueOnce(ok({ isUnique: true, similarQuestionIds: [] }));
+      mockValidatorService.validate.mockResolvedValue(
+        ok({ isValid: true, issues: [], usage: zeroUsage }),
+      );
+      mockTaggerService.tag.mockResolvedValue(
+        ok({ extraTags: [], usage: zeroUsage }),
+      );
       mockQuestionService.saveQuestion.mockResolvedValue(
         ok({ id: mockQuestionId }),
       );
@@ -231,10 +260,13 @@ describe('GeneratorService', () => {
     });
 
     it('should return err with status 409 when all 3 attempts produce duplicates', async () => {
-      jest
-        .spyOn(aiSdk, 'generateObject')
-        .mockResolvedValue({ object: validQuestion } as never);
-      mockEmbeddingService.embedText.mockResolvedValue(ok(mockEmbedding));
+      jest.spyOn(aiSdk, 'generateObject').mockResolvedValue({
+        object: validQuestion,
+        usage: { inputTokens: 5, outputTokens: 10 },
+      } as never);
+      mockEmbeddingService.embedText.mockResolvedValue(
+        ok({ embedding: mockEmbedding, tokens: 10 }),
+      );
       mockDeduplicatorService.checkUniqueness.mockResolvedValue(
         ok({ isUnique: false, similarQuestionIds: ['existing-id'] }),
       );
@@ -255,10 +287,13 @@ describe('GeneratorService', () => {
     });
 
     it('should return err immediately when deduplicator service fails', async () => {
-      jest
-        .spyOn(aiSdk, 'generateObject')
-        .mockResolvedValue({ object: validQuestion } as never);
-      mockEmbeddingService.embedText.mockResolvedValue(ok(mockEmbedding));
+      jest.spyOn(aiSdk, 'generateObject').mockResolvedValue({
+        object: validQuestion,
+        usage: { inputTokens: 5, outputTokens: 10 },
+      } as never);
+      mockEmbeddingService.embedText.mockResolvedValue(
+        ok({ embedding: mockEmbedding, tokens: 10 }),
+      );
       mockDeduplicatorService.checkUniqueness.mockResolvedValue(
         err({
           status: HttpStatus.INTERNAL_SERVER_ERROR,
@@ -282,10 +317,13 @@ describe('GeneratorService', () => {
 
   describe('validator & tagger', () => {
     beforeEach(() => {
-      jest
-        .spyOn(aiSdk, 'generateObject')
-        .mockResolvedValue({ object: validQuestion } as never);
-      mockEmbeddingService.embedText.mockResolvedValue(ok(mockEmbedding));
+      jest.spyOn(aiSdk, 'generateObject').mockResolvedValue({
+        object: validQuestion,
+        usage: { inputTokens: 5, outputTokens: 10 },
+      } as never);
+      mockEmbeddingService.embedText.mockResolvedValue(
+        ok({ embedding: mockEmbedding, tokens: 10 }),
+      );
       mockDeduplicatorService.checkUniqueness.mockResolvedValue(
         ok({ isUnique: true, similarQuestionIds: [] }),
       );
@@ -296,6 +334,7 @@ describe('GeneratorService', () => {
         ok({
           isValid: false,
           issues: ['stem is ambiguous', 'distractor too obvious'],
+          usage: zeroUsage,
         }),
       );
 
@@ -335,7 +374,7 @@ describe('GeneratorService', () => {
 
     it('should pass extraTags from tagger to saveQuestion', async () => {
       mockValidatorService.validate.mockResolvedValue(
-        ok({ isValid: true, issues: [] }),
+        ok({ isValid: true, issues: [], usage: zeroUsage }),
       );
       mockTaggerService.tag.mockResolvedValue(
         ok({
@@ -343,6 +382,7 @@ describe('GeneratorService', () => {
             { name: 'bloomsLevel', value: 'Analyze' },
             { name: 'gradeLevel', value: 'Grade 11' },
           ],
+          usage: zeroUsage,
         }),
       );
       mockQuestionService.saveQuestion.mockResolvedValue(
@@ -369,7 +409,7 @@ describe('GeneratorService', () => {
 
     it('should return err when tagger service fails', async () => {
       mockValidatorService.validate.mockResolvedValue(
-        ok({ isValid: true, issues: [] }),
+        ok({ isValid: true, issues: [], usage: zeroUsage }),
       );
       mockTaggerService.tag.mockResolvedValue(
         err({
@@ -410,14 +450,16 @@ describe('GeneratorService', () => {
       // embedText is called once for grounding context, but never for question embedding
       expect(mockEmbeddingService.embedText).not.toHaveBeenCalledWith(
         buildEmbeddingText(validQuestion.stem, validQuestion.options),
+        undefined,
       );
       expect(mockQuestionService.saveQuestion).not.toHaveBeenCalled();
     });
 
     it('should return err and skip .NET call when embedding fails', async () => {
-      jest
-        .spyOn(aiSdk, 'generateObject')
-        .mockResolvedValue({ object: validQuestion } as never);
+      jest.spyOn(aiSdk, 'generateObject').mockResolvedValue({
+        object: validQuestion,
+        usage: { inputTokens: 5, outputTokens: 10 },
+      } as never);
       mockEmbeddingService.embedText.mockResolvedValue(
         err({
           status: HttpStatus.INTERNAL_SERVER_ERROR,
@@ -440,17 +482,22 @@ describe('GeneratorService', () => {
     });
 
     it('should return err and skip embedding write when .NET call fails', async () => {
-      jest
-        .spyOn(aiSdk, 'generateObject')
-        .mockResolvedValue({ object: validQuestion } as never);
-      mockEmbeddingService.embedText.mockResolvedValue(ok(mockEmbedding));
+      jest.spyOn(aiSdk, 'generateObject').mockResolvedValue({
+        object: validQuestion,
+        usage: { inputTokens: 5, outputTokens: 10 },
+      } as never);
+      mockEmbeddingService.embedText.mockResolvedValue(
+        ok({ embedding: mockEmbedding, tokens: 10 }),
+      );
       mockDeduplicatorService.checkUniqueness.mockResolvedValue(
         ok({ isUnique: true, similarQuestionIds: [] }),
       );
       mockValidatorService.validate.mockResolvedValue(
-        ok({ isValid: true, issues: [] }),
+        ok({ isValid: true, issues: [], usage: zeroUsage }),
       );
-      mockTaggerService.tag.mockResolvedValue(ok({ extraTags: [] }));
+      mockTaggerService.tag.mockResolvedValue(
+        ok({ extraTags: [], usage: zeroUsage }),
+      );
       mockQuestionService.saveQuestion.mockResolvedValue(
         err({
           status: HttpStatus.INTERNAL_SERVER_ERROR,
@@ -470,17 +517,22 @@ describe('GeneratorService', () => {
     });
 
     it('should return err when embedding DB insert throws', async () => {
-      jest
-        .spyOn(aiSdk, 'generateObject')
-        .mockResolvedValue({ object: validQuestion } as never);
-      mockEmbeddingService.embedText.mockResolvedValue(ok(mockEmbedding));
+      jest.spyOn(aiSdk, 'generateObject').mockResolvedValue({
+        object: validQuestion,
+        usage: { inputTokens: 5, outputTokens: 10 },
+      } as never);
+      mockEmbeddingService.embedText.mockResolvedValue(
+        ok({ embedding: mockEmbedding, tokens: 10 }),
+      );
       mockDeduplicatorService.checkUniqueness.mockResolvedValue(
         ok({ isUnique: true, similarQuestionIds: [] }),
       );
       mockValidatorService.validate.mockResolvedValue(
-        ok({ isValid: true, issues: [] }),
+        ok({ isValid: true, issues: [], usage: zeroUsage }),
       );
-      mockTaggerService.tag.mockResolvedValue(ok({ extraTags: [] }));
+      mockTaggerService.tag.mockResolvedValue(
+        ok({ extraTags: [], usage: zeroUsage }),
+      );
       mockQuestionService.saveQuestion.mockResolvedValue(
         ok({ id: mockQuestionId }),
       );
