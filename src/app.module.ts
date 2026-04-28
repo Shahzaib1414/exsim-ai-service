@@ -18,6 +18,7 @@ import { TaggerModule } from './modules/tagger';
 import { ObservabilityModule } from './common/modules';
 import { BatchModule } from './modules/batch';
 import { GroundingModule } from './modules/grounding';
+import { AnalyticsModule } from './modules/analytics';
 
 @Module({
   imports: [
@@ -63,6 +64,7 @@ import { GroundingModule } from './modules/grounding';
     GeneratorModule,
     BatchModule,
     GroundingModule,
+    AnalyticsModule,
     ObservabilityModule,
   ],
   controllers: [AppController],

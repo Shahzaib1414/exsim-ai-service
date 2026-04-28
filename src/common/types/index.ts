@@ -8,4 +8,5 @@ export * from './validator.types';
 export * from './tagger.types';
 export * from './batch.types';
 export * from './grounding.types';
+export * from './analytics.types';
 export * from './file.types';
