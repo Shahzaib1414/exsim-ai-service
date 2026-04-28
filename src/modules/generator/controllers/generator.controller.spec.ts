@@ -42,7 +42,11 @@ describe('GeneratorController', () => {
 
   it('should return status 201 with question on success', async () => {
     generatorService.generateOne.mockResolvedValue(
-      ok({ ...validQuestion, questionId: expect.any(String) }),
+      ok({
+        ...validQuestion,
+        questionId: expect.any(String),
+        usage: { promptTokens: 100, completionTokens: 50, totalTokens: 150 },
+      }),
     );
 
     const result = controller.generateOne();
@@ -54,6 +58,7 @@ describe('GeneratorController', () => {
     expect(response.body).toEqual({
       ...validQuestion,
       questionId: expect.any(String),
+      usage: { promptTokens: 100, completionTokens: 50, totalTokens: 150 },
     });
   });
 
