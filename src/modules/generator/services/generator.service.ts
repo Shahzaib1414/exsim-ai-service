@@ -5,6 +5,7 @@ import { generateObject } from 'ai';
 import { err, ok, Result } from 'neverthrow';
 import { randomUUID } from 'crypto';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
+import type { ILangfuseTrace } from '@/common/types';
 
 import { TEnv } from '@/config';
 import { BaseService } from '@/common/services';
@@ -15,6 +16,9 @@ import {
   TQuestion,
   TErrorResult,
   buildEmbeddingText,
+  TLlmUsage,
+  ZERO_LLM_USAGE,
+  addLlmUsage,
 } from '@/common/types';
 import { EmbeddingService } from '@/modules/embedding/services/embedding.service';
 import { QuestionService } from '@/modules/question/services/question.service';
@@ -23,7 +27,8 @@ import { ValidatorService } from '@/modules/validator/services/validator.service
 import { TaggerService } from '@/modules/tagger/services/tagger.service';
 import { GroundingService } from '@/modules/grounding/services/grounding.service';
 import { QuestionEmbeddings } from '@/db/schemas/question-embedding.schema';
-import { serializeError } from '@/utils';
+import { serializeError, withLlmRetry } from '@/utils';
+import { AppInsightsMetricsService } from '@/common/services';
 import type { TGenerateOneInput } from '@/common/types';
 
 const MAX_ATTEMPTS = 3;
@@ -43,6 +48,7 @@ export class GeneratorService extends BaseService {
     private readonly validatorService: ValidatorService,
     private readonly taggerService: TaggerService,
     private readonly groundingService: GroundingService,
+    private readonly metricsService: AppInsightsMetricsService,
   ) {
     super(db);
 
@@ -58,11 +64,14 @@ export class GeneratorService extends BaseService {
     subject,
     topic,
     difficulty,
-  }: TGenerateOneInput): Promise<
-    Result<TQuestion & { questionId: string }, TErrorResult>
+    trace,
+  }: TGenerateOneInput & { trace?: ILangfuseTrace }): Promise<
+    Result<TQuestion & { questionId: string; usage: TLlmUsage }, TErrorResult>
   > {
     // Retrieve grounding context once before the retry loop
     const groundingContext = await this.fetchGroundingContext(subject, topic);
+
+    let accumulatedUsage: TLlmUsage = ZERO_LLM_USAGE;
 
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       // Step 1: Generate question via LLM
@@ -71,16 +80,20 @@ export class GeneratorService extends BaseService {
         topic,
         difficulty,
         groundingContext,
+        trace,
       );
       if (llmResult.isErr()) return err(llmResult.error);
-      const question = llmResult.value;
+      const { question, usage: llmUsage } = llmResult.value;
+      accumulatedUsage = addLlmUsage(accumulatedUsage, llmUsage);
 
       // Step 2: Generate embedding
       const embeddingText = buildEmbeddingText(question.stem, question.options);
-      const embeddingResult =
-        await this.embeddingService.embedText(embeddingText);
+      const embeddingResult = await this.embeddingService.embedText(
+        embeddingText,
+        trace,
+      );
       if (embeddingResult.isErr()) return err(embeddingResult.error);
-      const embedding = embeddingResult.value;
+      const { embedding } = embeddingResult.value;
 
       // Step 3: Deduplication check
       const dedupResult =
@@ -109,8 +122,15 @@ export class GeneratorService extends BaseService {
       }
 
       // Step 4: Validate question quality
-      const validationResult = await this.validatorService.validate(question);
+      const validationResult = await this.validatorService.validate(
+        question,
+        trace,
+      );
       if (validationResult.isErr()) return err(validationResult.error);
+      accumulatedUsage = addLlmUsage(
+        accumulatedUsage,
+        validationResult.value.usage,
+      );
       if (!validationResult.value.isValid) {
         return err({
           status: HttpStatus.UNPROCESSABLE_ENTITY,
@@ -124,8 +144,10 @@ export class GeneratorService extends BaseService {
         subject,
         topic,
         difficulty,
+        trace,
       );
       if (tagResult.isErr()) return err(tagResult.error);
+      accumulatedUsage = addLlmUsage(accumulatedUsage, tagResult.value.usage);
 
       // Step 6: Save question via .NET API
       const saveResult = await this.questionService.saveQuestion(
@@ -152,7 +174,9 @@ export class GeneratorService extends BaseService {
         return err(storeResult.error);
       }
 
-      return ok({ ...question, questionId });
+      trace?.update({ output: { questionId } });
+
+      return ok({ ...question, questionId, usage: accumulatedUsage });
     }
 
     // Unreachable — loop always returns, satisfies TypeScript
@@ -173,7 +197,7 @@ export class GeneratorService extends BaseService {
       if (queryEmbedResult.isErr()) return [];
 
       const chunksResult = await this.groundingService.retrieveRelevantChunks(
-        queryEmbedResult.value,
+        queryEmbedResult.value.embedding,
         subject,
         topic,
       );
@@ -189,7 +213,8 @@ export class GeneratorService extends BaseService {
     topic: string,
     difficulty: string,
     groundingContext: string[] = [],
-  ): Promise<Result<TQuestion, TErrorResult>> {
+    trace?: ILangfuseTrace,
+  ): Promise<Result<{ question: TQuestion; usage: TLlmUsage }, TErrorResult>> {
     const groundingBlock =
       groundingContext.length > 0
         ? `Use the following syllabus content as context when generating the question:\n<grounding>\n${groundingContext.join('\n\n---\n\n')}\n</grounding>\n\n`
@@ -199,14 +224,46 @@ export class GeneratorService extends BaseService {
 The question must have exactly 4 distinct answer options.
 Return the index (0-3) of the correct answer and a brief explanation of why it is correct.`;
 
+    const generation = trace?.generation({
+      name: 'llm:generate-question',
+      input: { prompt },
+    });
+
     try {
-      const result = await generateObject({
-        model: this.model,
-        schema: QuestionSchema,
-        prompt,
+      const result = await withLlmRetry(
+        (idempotencyKey) =>
+          generateObject({
+            model: this.model,
+            schema: QuestionSchema,
+            prompt,
+            headers: { 'Idempotency-Key': idempotencyKey },
+          }),
+        {
+          onRetry: (attempt) =>
+            this.metricsService.trackLlmRetry('generator', attempt),
+        },
+      );
+
+      const promptTokens = result.usage.inputTokens ?? 0;
+      const completionTokens = result.usage.outputTokens ?? 0;
+      const usage: TLlmUsage = {
+        promptTokens,
+        completionTokens,
+        totalTokens: promptTokens + completionTokens,
+      };
+
+      generation?.end({
+        output: result.object,
+        usage: {
+          input: usage.promptTokens,
+          output: usage.completionTokens,
+          total: usage.totalTokens,
+        },
       });
-      return ok(result.object);
+
+      return ok({ question: result.object, usage });
     } catch (error) {
+      generation?.end({ output: { error: serializeError(error) } });
       this.logger.error({
         message: 'Failed to generate question',
         data: { error: serializeError(error) },

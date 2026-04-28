@@ -5,6 +5,7 @@ import * as aiSdk from 'ai';
 import { getLoggerToken } from 'nestjs-pino';
 
 import { ValidatorService } from './validator.service';
+import { AppInsightsMetricsService } from '@/common/services';
 import type { TQuestion } from '@/common/types';
 
 jest.mock('ai', () => ({
@@ -50,6 +51,10 @@ describe('ValidatorService', () => {
         {
           provide: getLoggerToken(ValidatorService.name),
           useValue: mockLogger,
+        },
+        {
+          provide: AppInsightsMetricsService,
+          useValue: { trackLlmRetry: jest.fn() },
         },
       ],
     }).compile();
@@ -102,27 +107,33 @@ describe('ValidatorService', () => {
     it('should call generateObject and return its result for a valid question', async () => {
       jest.spyOn(aiSdk, 'generateObject').mockResolvedValue({
         object: { isValid: true, issues: [] },
+        usage: { inputTokens: 5, outputTokens: 10 },
       } as never);
 
       const result = await service.validate(validQuestion);
 
       expect(aiSdk.generateObject).toHaveBeenCalledTimes(1);
       expect(result.isOk()).toBe(true);
-      expect(result._unsafeUnwrap()).toEqual({ isValid: true, issues: [] });
+      expect(result._unsafeUnwrap()).toEqual(
+        expect.objectContaining({ isValid: true, issues: [] }),
+      );
     });
 
     it('should return isValid=false with issues when LLM flags problems', async () => {
       jest.spyOn(aiSdk, 'generateObject').mockResolvedValue({
         object: { isValid: false, issues: ['stem is ambiguous'] },
+        usage: { inputTokens: 5, outputTokens: 10 },
       } as never);
 
       const result = await service.validate(validQuestion);
 
       expect(result.isOk()).toBe(true);
-      expect(result._unsafeUnwrap()).toEqual({
-        isValid: false,
-        issues: ['stem is ambiguous'],
-      });
+      expect(result._unsafeUnwrap()).toEqual(
+        expect.objectContaining({
+          isValid: false,
+          issues: ['stem is ambiguous'],
+        }),
+      );
     });
 
     it('should return err with status 500 when LLM call throws', async () => {

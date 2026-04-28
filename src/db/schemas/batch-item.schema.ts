@@ -19,6 +19,9 @@ export const BatchItems = pgTable('BatchItems', {
     .$type<TBatchItemStatus>(),
   AttemptCount: integer('AttemptCount').notNull().default(0),
   ErrorMessage: text('ErrorMessage'),
+  PromptTokens: integer('PromptTokens').notNull().default(0),
+  CompletionTokens: integer('CompletionTokens').notNull().default(0),
+  TotalTokens: integer('TotalTokens').notNull().default(0),
 });
 
 export type TBatchItemInsert = typeof BatchItems.$inferInsert;

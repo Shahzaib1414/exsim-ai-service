@@ -5,6 +5,7 @@ import * as aiSdk from 'ai';
 import { getLoggerToken } from 'nestjs-pino';
 
 import { TaggerService } from './tagger.service';
+import { AppInsightsMetricsService } from '@/common/services';
 import type { TQuestion } from '@/common/types';
 
 jest.mock('ai', () => ({
@@ -51,6 +52,10 @@ describe('TaggerService', () => {
           provide: getLoggerToken(TaggerService.name),
           useValue: mockLogger,
         },
+        {
+          provide: AppInsightsMetricsService,
+          useValue: { trackLlmRetry: jest.fn() },
+        },
       ],
     }).compile();
 
@@ -65,6 +70,7 @@ describe('TaggerService', () => {
     it('should return extraTags with bloomsLevel and gradeLevel', async () => {
       jest.spyOn(aiSdk, 'generateObject').mockResolvedValue({
         object: { bloomsLevel: 'Remember', gradeLevel: 'Grade 10' },
+        usage: { inputTokens: 5, outputTokens: 10 },
       } as never);
 
       const result = await service.tag(

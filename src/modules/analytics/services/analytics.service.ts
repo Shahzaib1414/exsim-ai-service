@@ -18,11 +18,13 @@ import {
   TGenerateAngelReportBody,
 } from '@/common/types';
 import { AIAngelReports } from '@/db/schemas/ai-angel-report.schema';
-import { serializeError } from '@/utils';
+import { serializeError, withLlmRetry } from '@/utils';
 import {
   buildPerformanceSummary,
   buildAnalyticsPrompt,
 } from '@/utils/analytics-prompt.util';
+import { LangfuseService } from '@/common/services/langfuse.service';
+import { AppInsightsMetricsService } from '@/common/services';
 
 @Injectable()
 export class AnalyticsService extends BaseService {
@@ -33,6 +35,8 @@ export class AnalyticsService extends BaseService {
     @InjectPinoLogger(AnalyticsService.name)
     private readonly logger: PinoLogger,
     private readonly config: ConfigService<TEnv, true>,
+    private readonly langfuseService: LangfuseService,
+    private readonly metricsService: AppInsightsMetricsService,
   ) {
     super(db);
 
@@ -84,17 +88,46 @@ export class AnalyticsService extends BaseService {
     const prompt = buildAnalyticsPrompt(body, summary);
 
     // Step 3: Call GPT-4o with structured output
+    const trace = this.langfuseService.client.trace({
+      name: 'ai-angel-report',
+      metadata: { sessionId: body.sessionId, userId: body.userId },
+    });
+    const generation = trace.generation({
+      name: 'llm:ai-angel-report',
+      input: { prompt },
+    });
+
     let report: TAiAngelReport;
     try {
-      const { object } = await generateObject({
-        model: this.model,
-        schema: AiAngelReportSchema,
-        system:
-          'You are an educational analytics assistant. Generate structured, empathetic, data-grounded insights for a student based on their test session performance.',
-        prompt,
+      const result = await withLlmRetry(
+        (idempotencyKey) =>
+          generateObject({
+            model: this.model,
+            schema: AiAngelReportSchema,
+            system:
+              'You are an educational analytics assistant. Generate structured, empathetic, data-grounded insights for a student based on their test session performance.',
+            prompt,
+            headers: { 'Idempotency-Key': idempotencyKey },
+          }),
+        {
+          onRetry: (attempt) =>
+            this.metricsService.trackLlmRetry('analytics', attempt),
+        },
+      );
+
+      generation.end({
+        output: result.object,
+        usage: {
+          input: result.usage.inputTokens ?? 0,
+          output: result.usage.outputTokens ?? 0,
+          total:
+            (result.usage.inputTokens ?? 0) + (result.usage.outputTokens ?? 0),
+        },
       });
-      report = object;
+
+      report = result.object;
     } catch (error) {
+      generation.end({ output: { error: serializeError(error) } });
       this.logger.error({
         message: 'Failed to generate AI Angel report',
         data: { sessionId: body.sessionId, error: serializeError(error) },

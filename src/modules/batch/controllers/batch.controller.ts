@@ -1,5 +1,6 @@
 import { Controller, HttpStatus } from '@nestjs/common';
 import { TsRestHandler, tsRestHandler } from '@ts-rest/nest';
+import { Throttle, SkipThrottle } from '@nestjs/throttler';
 
 import { batchContract } from '@/contracts/batch.contract';
 import { BatchService } from '../services/batch.service';
@@ -8,6 +9,7 @@ import { BatchService } from '../services/batch.service';
 export class BatchController {
   constructor(private readonly batchService: BatchService) {}
 
+  @Throttle({ default: { ttl: 60_000, limit: 10 } })
   @TsRestHandler(batchContract.createBatch)
   createBatch() {
     return tsRestHandler(batchContract.createBatch, async ({ body }) => {
@@ -26,6 +28,7 @@ export class BatchController {
     });
   }
 
+  @SkipThrottle()
   @TsRestHandler(batchContract.listBatches)
   listBatches() {
     return tsRestHandler(batchContract.listBatches, async () => {
@@ -44,6 +47,7 @@ export class BatchController {
     });
   }
 
+  @SkipThrottle()
   @TsRestHandler(batchContract.getBatch)
   getBatch() {
     return tsRestHandler(batchContract.getBatch, async ({ params }) => {
@@ -62,6 +66,7 @@ export class BatchController {
     });
   }
 
+  @SkipThrottle()
   @TsRestHandler(batchContract.getBatchItems)
   getBatchItems() {
     return tsRestHandler(

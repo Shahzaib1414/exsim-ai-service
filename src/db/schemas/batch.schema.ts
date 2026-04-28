@@ -25,6 +25,10 @@ export const Batches = pgTable('Batches', {
     .notNull()
     .default('pending')
     .$type<TBatchStatus>(),
+  TotalPromptTokens: integer('TotalPromptTokens').notNull().default(0),
+  TotalCompletionTokens: integer('TotalCompletionTokens').notNull().default(0),
+  TotalTokens: integer('TotalTokens').notNull().default(0),
+  EstimatedCostUsd: text('EstimatedCostUsd').notNull().default('0.000000'),
 });
 
 export type TBatchInsert = typeof Batches.$inferInsert;

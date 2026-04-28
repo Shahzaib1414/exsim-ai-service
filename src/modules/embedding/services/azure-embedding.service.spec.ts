@@ -6,6 +6,7 @@ import { getLoggerToken } from 'nestjs-pino';
 
 import { EmbeddingService } from './embedding.service';
 import { AzureEmbeddingService } from './azure-embedding.service';
+import { AppInsightsMetricsService } from '@/common/services';
 
 jest.mock('ai', () => ({
   embed: jest.fn(),
@@ -40,6 +41,10 @@ describe('AzureEmbeddingService', () => {
           provide: getLoggerToken(AzureEmbeddingService.name),
           useValue: { error: jest.fn(), log: jest.fn(), warn: jest.fn() },
         },
+        {
+          provide: AppInsightsMetricsService,
+          useValue: { trackLlmRetry: jest.fn() },
+        },
       ],
     }).compile();
 
@@ -52,16 +57,17 @@ describe('AzureEmbeddingService', () => {
 
   it('should return ok with a number[] on success', async () => {
     const mockVector = new Float32Array(1536).fill(0.1);
-    jest
-      .spyOn(aiSdk, 'embed')
-      .mockResolvedValue({ embedding: mockVector } as never);
+    jest.spyOn(aiSdk, 'embed').mockResolvedValue({
+      embedding: mockVector,
+      usage: { tokens: 10 },
+    } as never);
 
     const result = await service.embedText('What is 2+2?');
 
     expect(result.isOk()).toBe(true);
-    const vector = result._unsafeUnwrap();
-    expect(Array.isArray(vector)).toBe(true);
-    expect(vector).toHaveLength(1536);
+    const { embedding } = result._unsafeUnwrap();
+    expect(Array.isArray(embedding)).toBe(true);
+    expect(embedding).toHaveLength(1536);
   });
 
   it('should return err with status 500 when embed throws', async () => {

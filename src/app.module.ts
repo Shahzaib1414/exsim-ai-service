@@ -4,6 +4,8 @@ import { LoggerModule } from 'nestjs-pino';
 import { BullModule } from '@nestjs/bullmq';
 import { BullBoardModule } from '@bull-board/nestjs';
 import { ExpressAdapter } from '@bull-board/express';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { APP_GUARD } from '@nestjs/core';
 import { randomUUID } from 'crypto';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -55,6 +57,9 @@ import { AnalyticsModule } from './modules/analytics';
         adapter: ExpressAdapter,
       }),
     }),
+    ThrottlerModule.forRoot({
+      throttlers: [{ ttl: 60_000, limit: 10 }],
+    }),
     DatabaseModule,
     EmbeddingModule,
     DeduplicatorModule,
@@ -68,6 +73,6 @@ import { AnalyticsModule } from './modules/analytics';
     ObservabilityModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [AppService, { provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
 export class AppModule {}
