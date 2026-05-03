@@ -2,13 +2,34 @@ import { z } from 'zod';
 
 import { BatchStatusSchema } from '@/db/schemas/batch.schema';
 import { BatchItemStatusSchema } from '@/db/schemas/batch-item.schema';
-import { QuestionDifficultySchema } from '@/db/schemas/question.schema';
+import type { TLlmUsage } from './cost.types';
+import {
+  QuestionDifficultySchema,
+  QuestionType,
+  QuestionTypeSchema,
+} from '@/db/schemas/question.schema';
+
+export const BatchMetadataSchema = z.object({
+  examType: z.string(),
+  subject: z.string(),
+  topic: z.string(),
+  difficulty: QuestionDifficultySchema,
+  grade: z.number().min(1).max(12),
+  questionType: QuestionTypeSchema,
+});
+export type TBatchMetadata = z.infer<typeof BatchMetadataSchema>;
 
 export const createBatchSchema = z.object({
+  examType: z.string().min(1),
   subject: z.string().min(1),
   topic: z.string().min(1),
   difficulty: QuestionDifficultySchema,
   count: z.number().int().min(1).max(100),
+  grade: z
+    .number()
+    .min(1, { message: 'Grade should not be lower than 1' })
+    .max(12, { message: 'Grade cannot be greater than 12' }),
+  questionType: QuestionTypeSchema.default(QuestionType.Mcqs),
 });
 
 export type TCreateBatch = z.infer<typeof createBatchSchema>;
@@ -19,6 +40,7 @@ export const batchItemResponseSchema = z.object({
   questionId: z.string().uuid().nullable(),
   attemptCount: z.number(),
   errorMessage: z.string().nullable(),
+  duplicateQuestions: z.string().nullable(),
   promptTokens: z.number().int().default(0),
   completionTokens: z.number().int().default(0),
   totalTokens: z.number().int().default(0),
@@ -26,9 +48,7 @@ export const batchItemResponseSchema = z.object({
 
 export const batchResponseSchema = z.object({
   id: z.string().uuid(),
-  subject: z.string(),
-  topic: z.string(),
-  difficulty: QuestionDifficultySchema,
+  metadata: BatchMetadataSchema,
   requestedCount: z.number(),
   completedCount: z.number(),
   failedCount: z.number(),
@@ -36,7 +56,7 @@ export const batchResponseSchema = z.object({
   totalPromptTokens: z.number().int().default(0),
   totalCompletionTokens: z.number().int().default(0),
   totalTokens: z.number().int().default(0),
-  estimatedCostUsd: z.string().default('0.000000'),
+  estimatedCostUsd: z.string().default('0.00'),
 });
 
 export const batchWithItemsResponseSchema = batchResponseSchema.extend({
@@ -67,7 +87,15 @@ export type TSampleBatch = z.infer<typeof sampleBatchSchema>;
 export type TBatchItemJobData = {
   batchItemId: string;
   batchId: string;
+  examType: string;
   subject: string;
   topic: string;
   difficulty: z.infer<typeof QuestionDifficultySchema>;
+  grade: number;
+  questionType: z.infer<typeof QuestionTypeSchema>;
+  negativeExampleIds?: string[];
 };
+
+export type TGenerateOneResult =
+  | { needsReview: false; questionId: string; usage: TLlmUsage }
+  | { needsReview: true; duplicateQuestionIds: string[] };

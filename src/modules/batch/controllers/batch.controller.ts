@@ -90,4 +90,28 @@ export class BatchController {
       },
     );
   }
+
+  @Throttle({ default: { ttl: 60_000, limit: 20 } })
+  @TsRestHandler(batchContract.retryDuplicateItem)
+  retryDuplicateItem() {
+    return tsRestHandler(
+      batchContract.retryDuplicateItem,
+      async ({ params }) => {
+        const result = await this.batchService.retryDuplicateItem(
+          params.itemId,
+        );
+        if (result.isErr()) {
+          return {
+            status: result.error.status as any,
+            body: {
+              status: result.error.status,
+              message: HttpStatus[result.error.status],
+              errors: [result.error.message],
+            },
+          };
+        }
+        return { status: HttpStatus.OK, body: result.value };
+      },
+    );
+  }
 }

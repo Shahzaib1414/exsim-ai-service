@@ -26,8 +26,8 @@ export class AzureEmbeddingService extends EmbeddingService {
   ) {
     super();
     const azure = createAzure({
-      resourceName: config.get('AZURE_OPENAI_RESOURCE'),
-      apiKey: config.get('AZURE_OPENAI_KEY'),
+      resourceName: config.get('AZURE_OPENAI_EMBEDDING_RESOURCE'),
+      apiKey: config.get('AZURE_OPENAI_EMBEDDING_KEY'),
     });
 
     this.embeddingModel = azure.embedding(

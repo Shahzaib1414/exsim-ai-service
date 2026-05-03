@@ -4,7 +4,6 @@ import { createAzure } from '@ai-sdk/azure';
 import { generateObject } from 'ai';
 import { eq } from 'drizzle-orm';
 import { err, ok, Result } from 'neverthrow';
-import { randomUUID } from 'crypto';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 
 import { TEnv } from '@/config';
@@ -27,7 +26,7 @@ import { LangfuseService } from '@/common/services/langfuse.service';
 import { AppInsightsMetricsService } from '@/common/services';
 
 @Injectable()
-export class AnalyticsService extends BaseService {
+export class AnalyticsService extends BaseService<typeof AIAngelReports> {
   private readonly model: ReturnType<ReturnType<typeof createAzure>>;
 
   constructor(
@@ -38,7 +37,7 @@ export class AnalyticsService extends BaseService {
     private readonly langfuseService: LangfuseService,
     private readonly metricsService: AppInsightsMetricsService,
   ) {
-    super(db);
+    super(db, AIAngelReports);
 
     const azure = createAzure({
       resourceName: config.get('AZURE_OPENAI_RESOURCE'),
@@ -53,18 +52,16 @@ export class AnalyticsService extends BaseService {
   ): Promise<Result<TAiAngelReport, TErrorResult>> {
     // Step 1: Cache check — idempotent by sessionId
     try {
-      const existing = await this.db
-        .select()
-        .from(AIAngelReports)
-        .where(eq(AIAngelReports.SessionId, body.sessionId))
-        .limit(1);
+      const existing = await this.findOne(
+        eq(AIAngelReports.SessionId, body.sessionId),
+      );
 
-      if (existing[0]) {
+      if (existing) {
         const cached = AiAngelReportSchema.parse({
-          progress: existing[0].Progress,
-          strengths: existing[0].Strengths,
-          weaknesses: existing[0].Weaknesses,
-          cohortComparison: existing[0].CohortComparison,
+          progress: existing.Progress,
+          strengths: existing.Strengths,
+          weaknesses: existing.Weaknesses,
+          cohortComparison: existing.CohortComparison,
         });
         this.logger.info({
           message: 'Returning cached AI Angel report',
@@ -140,8 +137,7 @@ export class AnalyticsService extends BaseService {
 
     // Step 4: Persist the report
     try {
-      await this.db.insert(AIAngelReports).values({
-        Id: randomUUID(),
+      await this.insertOne({
         UserId: body.userId,
         SessionId: body.sessionId,
         Subject: body.subject,
@@ -150,7 +146,6 @@ export class AnalyticsService extends BaseService {
         Strengths: report.strengths,
         Weaknesses: report.weaknesses,
         CohortComparison: report.cohortComparison,
-        Created: new Date(),
       });
     } catch (error) {
       this.logger.error({
@@ -170,13 +165,9 @@ export class AnalyticsService extends BaseService {
     sessionId: string,
   ): Promise<Result<TAiAngelReport, TErrorResult>> {
     try {
-      const rows = await this.db
-        .select()
-        .from(AIAngelReports)
-        .where(eq(AIAngelReports.SessionId, sessionId))
-        .limit(1);
+      const row = await this.findOne(eq(AIAngelReports.SessionId, sessionId));
 
-      if (!rows[0]) {
+      if (!row) {
         return err({
           status: HttpStatus.NOT_FOUND,
           message: `AI Angel report not found for session ${sessionId}`,
@@ -184,10 +175,10 @@ export class AnalyticsService extends BaseService {
       }
 
       const report = AiAngelReportSchema.parse({
-        progress: rows[0].Progress,
-        strengths: rows[0].Strengths,
-        weaknesses: rows[0].Weaknesses,
-        cohortComparison: rows[0].CohortComparison,
+        progress: row.Progress,
+        strengths: row.Strengths,
+        weaknesses: row.Weaknesses,
+        cohortComparison: row.CohortComparison,
       });
 
       return ok(report);

@@ -7,3 +7,6 @@ export * from './grounding-embedding.schema';
 export * from './batch.schema';
 export * from './batch-item.schema';
 export * from './ai-angel-report.schema';
+export * from './asp-net-identity.schema';
+export * from './category.schema';
+export * from './topic.schema';

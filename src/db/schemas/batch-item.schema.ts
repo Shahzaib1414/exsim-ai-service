@@ -4,8 +4,14 @@ import { z } from 'zod';
 import { baseEntityColumns } from './base.schema';
 import { Batches } from './batch.schema';
 
-export const BatchItemStatusSchema = z.enum(['pending', 'generated', 'failed']);
+export const BatchItemStatusSchema = z.enum([
+  'PENDING',
+  'COMPLETED',
+  'FAILED',
+  'NEEDS_REVIEW',
+]);
 export type TBatchItemStatus = z.infer<typeof BatchItemStatusSchema>;
+export const BatchItemStatus = BatchItemStatusSchema.enum;
 
 export const BatchItems = pgTable('BatchItems', {
   ...baseEntityColumns,
@@ -15,10 +21,11 @@ export const BatchItems = pgTable('BatchItems', {
   QuestionId: uuid('QuestionId'),
   Status: varchar('Status', { length: 20 })
     .notNull()
-    .default('pending')
+    .default(BatchItemStatus.PENDING)
     .$type<TBatchItemStatus>(),
   AttemptCount: integer('AttemptCount').notNull().default(0),
   ErrorMessage: text('ErrorMessage'),
+  DuplicateQuestions: text('DuplicateQuestions'),
   PromptTokens: integer('PromptTokens').notNull().default(0),
   CompletionTokens: integer('CompletionTokens').notNull().default(0),
   TotalTokens: integer('TotalTokens').notNull().default(0),

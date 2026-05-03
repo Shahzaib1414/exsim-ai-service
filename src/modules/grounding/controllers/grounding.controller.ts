@@ -44,8 +44,13 @@ export class GroundingController {
         const result = await this.groundingService.ingestDocument(
           file.buffer,
           file.originalname,
-          query.subject,
-          query.topic,
+          {
+            examType: query.examType,
+            subject: query.subject,
+            topic: query.topic,
+            grade: query.grade,
+            questionType: query.questionType,
+          },
         );
 
         if (result.isErr()) {

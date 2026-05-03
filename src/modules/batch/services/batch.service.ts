@@ -2,14 +2,17 @@ import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { Queue } from 'bullmq';
 import { eq, and, sum } from 'drizzle-orm';
 import { err, ok, Result } from 'neverthrow';
-import { randomUUID } from 'crypto';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 
 import { BaseService } from '@/common/services';
 import { DRIZZLE_CLIENT } from '@/database/database.module';
 import type { DrizzleClient } from '@/db';
-import { Batches, TBatchSelect } from '@/db/schemas/batch.schema';
-import { BatchItems, TBatchItemSelect } from '@/db/schemas/batch-item.schema';
+import { Batches, BatchStatus, TBatchSelect } from '@/db/schemas/batch.schema';
+import {
+  BatchItems,
+  BatchItemStatus,
+  TBatchItemSelect,
+} from '@/db/schemas/batch-item.schema';
 import type { TErrorResult, TLlmUsage } from '@/common/types';
 import { serializeError, calculateGpt4oCost, formatCostUsd } from '@/utils';
 import { InjectBatchItemQueue, PROCESS_BATCH_ITEM_JOB } from '@/queues';
@@ -19,6 +22,7 @@ import {
   TBatchResponse,
   TBatchWithItemsResponse,
   TBatchItemJobData,
+  TBatchItemResponse,
 } from '@/common/types';
 import { AppInsightsMetricsService } from '@/common/services';
 
@@ -39,63 +43,67 @@ export class BatchService extends BaseService {
     dto: TCreateBatch,
   ): Promise<Result<TBatchResponse, TErrorResult>> {
     try {
-      const batchId = randomUUID();
-      const now = new Date();
-
-      await this.db.insert(Batches).values({
-        Id: batchId,
-        Subject: dto.subject,
-        Topic: dto.topic,
-        Difficulty: dto.difficulty,
+      const batch = await this.insertInto(Batches, {
+        Metadata: {
+          examType: dto.examType,
+          subject: dto.subject,
+          topic: dto.topic,
+          difficulty: dto.difficulty,
+          grade: dto.grade,
+          questionType: dto.questionType,
+        },
         RequestedCount: dto.count,
-        Status: 'pending',
-        Created: now,
+        Status: BatchStatus.PENDING,
       });
 
-      const itemIds: string[] = Array.from({ length: dto.count }, () =>
-        randomUUID(),
-      );
+      const batchId = batch.Id;
 
-      await this.db.insert(BatchItems).values(
-        itemIds.map((id) => ({
-          Id: id,
+      const items = await this.insertManyInto(
+        BatchItems,
+        Array.from({ length: dto.count }, () => ({
           BatchId: batchId,
-          Status: 'pending' as const,
+          Status: BatchItemStatus.PENDING,
           AttemptCount: 0,
-          Created: now,
         })),
       );
 
       await Promise.all(
-        itemIds.map((itemId) =>
+        items.map((item) =>
           this.batchItemQueue.add(
             PROCESS_BATCH_ITEM_JOB,
             {
-              batchItemId: itemId,
+              batchItemId: item.Id,
               batchId,
+              examType: dto.examType,
               subject: dto.subject,
               topic: dto.topic,
               difficulty: dto.difficulty,
+              grade: dto.grade,
+              questionType: dto.questionType,
             },
-            createMediumFrequencyJobOptions(itemId),
+            createMediumFrequencyJobOptions(item.Id),
           ),
         ),
       );
 
-      await this.db
-        .update(Batches)
-        .set({ Status: 'running' })
-        .where(eq(Batches.Id, batchId));
+      await this.updateIn(Batches, eq(Batches.Id, batchId), {
+        Status: BatchStatus.IN_PROGRESS,
+      });
 
       return ok({
         id: batchId,
-        subject: dto.subject,
-        topic: dto.topic,
-        difficulty: dto.difficulty,
+        metadata: {
+          examType: dto.examType,
+          subject: dto.subject,
+          topic: dto.topic,
+          difficulty: dto.difficulty,
+          grade: dto.grade,
+          questionType: dto.questionType,
+        },
         requestedCount: dto.count,
         completedCount: 0,
         failedCount: 0,
-        status: 'running',
+        status: BatchStatus.IN_PROGRESS,
         totalPromptTokens: 0,
         totalCompletionTokens: 0,
         totalTokens: 0,
@@ -246,31 +254,28 @@ export class BatchService extends BaseService {
     }
   }
 
-  async markItemGenerated(
+  async markItemCompleted(
     itemId: string,
     questionId: string,
     usage: TLlmUsage,
   ): Promise<Result<void, TErrorResult>> {
     try {
-      await this.db
-        .update(BatchItems)
-        .set({
-          Status: 'generated',
-          QuestionId: questionId,
-          PromptTokens: usage.promptTokens,
-          CompletionTokens: usage.completionTokens,
-          TotalTokens: usage.totalTokens,
-        })
-        .where(eq(BatchItems.Id, itemId));
+      await this.updateIn(BatchItems, eq(BatchItems.Id, itemId), {
+        Status: BatchItemStatus.COMPLETED,
+        QuestionId: questionId,
+        PromptTokens: usage.promptTokens,
+        CompletionTokens: usage.completionTokens,
+        TotalTokens: usage.totalTokens,
+      });
       return ok(undefined);
     } catch (error) {
       this.logger.error({
-        message: 'Failed to mark item generated',
+        message: 'Failed to mark item COMPLETED',
         data: { itemId, questionId, error: serializeError(error) },
       });
       return err({
         status: HttpStatus.INTERNAL_SERVER_ERROR,
-        message: 'failed to mark item generated',
+        message: 'failed to mark item COMPLETED',
       });
     }
   }
@@ -287,14 +292,11 @@ export class BatchService extends BaseService {
 
       const currentAttempts = rows[0]?.AttemptCount ?? 0;
 
-      await this.db
-        .update(BatchItems)
-        .set({
-          Status: 'failed',
-          AttemptCount: currentAttempts + 1,
-          ErrorMessage: errorMessage,
-        })
-        .where(eq(BatchItems.Id, itemId));
+      await this.updateIn(BatchItems, eq(BatchItems.Id, itemId), {
+        Status: BatchItemStatus.FAILED,
+        AttemptCount: currentAttempts + 1,
+        ErrorMessage: errorMessage,
+      });
 
       return ok(undefined);
     } catch (error) {
@@ -319,13 +321,15 @@ export class BatchService extends BaseService {
         .where(eq(BatchItems.BatchId, batchId));
 
       const allTerminal = items.every(
-        (i) => i.Status === 'generated' || i.Status === 'failed',
+        (i) =>
+          i.Status === BatchItemStatus.COMPLETED ||
+          i.Status === BatchItemStatus.FAILED,
       );
 
       if (!allTerminal) return ok(undefined);
 
-      const anyFailed = items.some((i) => i.Status === 'failed');
-      const newStatus = anyFailed ? 'failed' : 'completed';
+      const anyFailed = items.some((i) => i.Status === BatchItemStatus.FAILED);
+      const newStatus = anyFailed ? BatchStatus.FAILED : BatchStatus.COMPLETED;
 
       // Aggregate token counts across all items
       const tokenTotals = await this.db
@@ -348,18 +352,17 @@ export class BatchService extends BaseService {
         }),
       );
 
-      await this.db
-        .update(Batches)
-        .set({
-          Status: newStatus,
-          TotalPromptTokens: pt,
-          TotalCompletionTokens: ct,
-          TotalTokens: tt,
-          EstimatedCostUsd: estimatedCostUsd,
-        })
-        .where(eq(Batches.Id, batchId));
+      await this.updateIn(Batches, eq(Batches.Id, batchId), {
+        Status: newStatus,
+        TotalPromptTokens: pt,
+        TotalCompletionTokens: ct,
+        TotalTokens: tt,
+        EstimatedCostUsd: estimatedCostUsd,
+      });
 
-      const failedCount = items.filter((i) => i.Status === 'failed').length;
+      const failedCount = items.filter(
+        (i) => i.Status === BatchItemStatus.FAILED,
+      ).length;
       const failureRate = failedCount / items.length;
       this.metricsService.trackBatchCompletion(batchId, failureRate);
 
@@ -382,18 +385,132 @@ export class BatchService extends BaseService {
   ): TBatchResponse {
     return {
       id: batch.Id,
-      subject: batch.Subject,
-      topic: batch.Topic,
-      difficulty: batch.Difficulty,
+      metadata: batch.Metadata,
       requestedCount: batch.RequestedCount,
-      completedCount: items.filter((i) => i.Status === 'generated').length,
-      failedCount: items.filter((i) => i.Status === 'failed').length,
+      completedCount: items.filter(
+        (i) => i.Status === BatchItemStatus.COMPLETED,
+      ).length,
+      failedCount: items.filter((i) => i.Status === BatchItemStatus.FAILED)
+        .length,
       status: batch.Status,
       totalPromptTokens: batch.TotalPromptTokens,
       totalCompletionTokens: batch.TotalCompletionTokens,
       totalTokens: batch.TotalTokens,
       estimatedCostUsd: batch.EstimatedCostUsd,
     };
+  }
+
+  async markItemNeedsReview(
+    itemId: string,
+    duplicateQuestionIds: string[],
+  ): Promise<Result<void, TErrorResult>> {
+    try {
+      const rows = await this.db
+        .select({ AttemptCount: BatchItems.AttemptCount })
+        .from(BatchItems)
+        .where(eq(BatchItems.Id, itemId));
+      const currentAttempts = rows[0]?.AttemptCount ?? 0;
+
+      await this.updateIn(BatchItems, eq(BatchItems.Id, itemId), {
+        Status: BatchItemStatus.NEEDS_REVIEW,
+        AttemptCount: currentAttempts + 1,
+        DuplicateQuestions: duplicateQuestionIds.join(','),
+      });
+      return ok(undefined);
+    } catch (error) {
+      this.logger.error({
+        message: 'Failed to mark item NEEDS_REVIEW',
+        data: { itemId, error: serializeError(error) },
+      });
+      return err({
+        status: HttpStatus.INTERNAL_SERVER_ERROR,
+        message: 'failed to mark item NEEDS_REVIEW',
+      });
+    }
+  }
+
+  async retryDuplicateItem(
+    itemId: string,
+  ): Promise<Result<TBatchItemResponse, TErrorResult>> {
+    try {
+      const itemRows = await this.db
+        .select()
+        .from(BatchItems)
+        .where(eq(BatchItems.Id, itemId));
+      const item = itemRows[0];
+
+      if (!item) {
+        return err({
+          status: HttpStatus.NOT_FOUND,
+          message: 'batch item not found',
+        });
+      }
+
+      if (item.Status !== BatchItemStatus.NEEDS_REVIEW) {
+        return err({
+          status: HttpStatus.CONFLICT,
+          message: 'only items with NEEDS_REVIEW status can be retried',
+        });
+      }
+
+      const batchRows = await this.db
+        .select()
+        .from(Batches)
+        .where(eq(Batches.Id, item.BatchId));
+      const batch = batchRows[0];
+
+      if (!batch) {
+        return err({
+          status: HttpStatus.NOT_FOUND,
+          message: 'batch not found',
+        });
+      }
+
+      const negativeExampleIds = item.DuplicateQuestions
+        ? item.DuplicateQuestions.split(',').filter(Boolean)
+        : [];
+
+      await this.updateIn(BatchItems, eq(BatchItems.Id, itemId), {
+        Status: BatchItemStatus.PENDING,
+        DuplicateQuestions: null,
+        ErrorMessage: null,
+      });
+
+      const { examType, subject, topic, difficulty, grade, questionType } =
+        batch.Metadata;
+
+      await this.batchItemQueue.add(
+        PROCESS_BATCH_ITEM_JOB,
+        {
+          batchItemId: itemId,
+          batchId: item.BatchId,
+          examType,
+          subject,
+          topic,
+          difficulty,
+          grade,
+          questionType,
+          negativeExampleIds,
+        },
+        createMediumFrequencyJobOptions(itemId),
+      );
+
+      const updatedRows = await this.db
+        .select()
+        .from(BatchItems)
+        .where(eq(BatchItems.Id, itemId));
+
+      return ok(this.toBatchItemResponse(updatedRows[0]));
+    } catch (error) {
+      this.logger.error({
+        message: 'Failed to retry duplicate item',
+        data: { itemId, error: serializeError(error) },
+      });
+      return err({
+        status: HttpStatus.INTERNAL_SERVER_ERROR,
+        message: 'failed to retry duplicate item',
+      });
+    }
   }
 
   private toBatchItemResponse(item: TBatchItemSelect) {
@@ -403,6 +520,7 @@ export class BatchService extends BaseService {
       questionId: item.QuestionId ?? null,
       attemptCount: item.AttemptCount,
       errorMessage: item.ErrorMessage ?? null,
+      duplicateQuestions: item.DuplicateQuestions ?? null,
       promptTokens: item.PromptTokens,
       completionTokens: item.CompletionTokens,
       totalTokens: item.TotalTokens,

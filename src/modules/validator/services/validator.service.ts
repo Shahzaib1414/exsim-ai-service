@@ -15,6 +15,7 @@ import {
   TLlmUsage,
   ZERO_LLM_USAGE,
 } from '@/common/types';
+import { QuestionType } from '@/db/schemas/question.schema';
 import { serializeError, withLlmRetry } from '@/utils';
 import { AppInsightsMetricsService } from '@/common/services';
 
@@ -117,17 +118,18 @@ Return isValid=true only if all criteria pass. List any specific issues found.`;
   private runRuleChecks(question: TQuestion): string[] {
     const issues: string[] = [];
 
-    const uniqueOptions = new Set(question.options);
-    if (uniqueOptions.size !== question.options.length) {
-      issues.push('options must all be distinct');
-    }
-
     if (!question.stem.trim()) {
       issues.push('stem must not be empty');
     }
 
-    if (!question.explanation.trim()) {
-      issues.push('explanation must not be empty');
+    if (question.questionType === QuestionType.Mcqs) {
+      const uniqueOptions = new Set(question.options);
+      if (uniqueOptions.size !== question.options.length) {
+        issues.push('options must all be distinct');
+      }
+      if (!question.explanation.trim()) {
+        issues.push('explanation must not be empty');
+      }
     }
 
     return issues;

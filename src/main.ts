@@ -1,13 +1,17 @@
 import * as appInsights from 'applicationinsights';
 import { NestFactory } from '@nestjs/core';
 import { Logger, LoggerErrorInterceptor } from 'nestjs-pino';
-import { AppModule } from './app.module';
-// import { ConfigService } from '@nestjs/config';
 import { ValidationPipe } from '@nestjs/common';
-import { QueryErrorInterceptor } from './common/interceptors/query-validation.interceptor';
-import { PathValidationInterceptor } from './common/interceptors/path-validation.interceptor';
-import { ValidationErrorInterceptor } from './common';
-import { HeaderErrorInterceptor } from './common/interceptors/header-validation.interceptor';
+import { ConfigService } from '@nestjs/config';
+import { setupSwagger } from './swagger';
+
+import { AppModule } from './app.module';
+import {
+  HeaderErrorInterceptor,
+  PathValidationInterceptor,
+  QueryErrorInterceptor,
+  ValidationErrorInterceptor,
+} from '@/common/interceptors';
 
 const connectionString = process.env.APPLICATIONINSIGHTS_CONNECTION_STRING;
 if (connectionString) {
@@ -17,9 +21,9 @@ if (connectionString) {
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
   app.useLogger(app.get(Logger));
-  // await app.listen(process.env.PORT ?? 3000);
 
-  // const config = app.get<ConfigService>(ConfigService)['internalConfig'];
+  app.setGlobalPrefix('api');
+
   app.useGlobalPipes(new ValidationPipe());
   app.useGlobalInterceptors(new LoggerErrorInterceptor());
   app.useGlobalInterceptors(new QueryErrorInterceptor());
@@ -28,6 +32,11 @@ async function bootstrap() {
   app.useGlobalInterceptors(new ValidationErrorInterceptor());
 
   const port = 3000;
+  const config = app.get<ConfigService>(ConfigService)['internalConfig'];
+
+  if (config.swagger.enabled) {
+    setupSwagger(app, `http://localhost:${port}`);
+  }
 
   await app.listen(port);
 }

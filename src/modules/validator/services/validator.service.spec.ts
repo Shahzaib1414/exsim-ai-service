@@ -6,6 +6,7 @@ import { getLoggerToken } from 'nestjs-pino';
 
 import { ValidatorService } from './validator.service';
 import { AppInsightsMetricsService } from '@/common/services';
+import { QuestionType } from '@/db/schemas/question.schema';
 import type { TQuestion } from '@/common/types';
 
 jest.mock('ai', () => ({
@@ -38,6 +39,7 @@ const validQuestion: TQuestion = {
   options: ['Nucleus', 'Mitochondria', 'Ribosome', 'Golgi apparatus'],
   correctAnswerIndex: 1,
   explanation: 'The mitochondria produces ATP through cellular respiration.',
+  questionType: QuestionType.Mcqs,
 };
 
 describe('ValidatorService', () => {

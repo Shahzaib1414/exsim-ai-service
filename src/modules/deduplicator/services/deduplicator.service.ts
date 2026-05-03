@@ -33,7 +33,7 @@ export class DeduplicatorService extends BaseService {
       const rows = await this.db.execute(sql`
         SELECT "QuestionId"
         FROM "QuestionEmbeddings"
-        WHERE (1 - ("Embedding" <=> ${sql.raw(vectorLiteral)}::vector)) >= ${threshold}
+        WHERE (1 - ("Embedding" <=> ${vectorLiteral}::vector)) >= ${threshold}
         LIMIT 5
       `);
 

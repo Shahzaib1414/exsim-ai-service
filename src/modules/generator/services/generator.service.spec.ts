@@ -14,6 +14,7 @@ import { TaggerService } from '@/modules/tagger/services/tagger.service';
 import { GroundingService } from '@/modules/grounding/services/grounding.service';
 import { AppInsightsMetricsService } from '@/common/services';
 import { DRIZZLE_CLIENT } from '@/database/database.module';
+import { QuestionType } from '@/db/schemas/question.schema';
 import { buildEmbeddingText } from '@/common/types';
 import type { TQuestion } from '@/common/types';
 
@@ -68,7 +69,8 @@ const mockGroundingService = {
   retrieveRelevantChunks: jest.fn().mockResolvedValue(ok([])),
 };
 
-const mockInsertValues = jest.fn().mockResolvedValue(undefined);
+const mockInsertReturning = jest.fn().mockResolvedValue([]);
+const mockInsertValues = jest.fn(() => ({ returning: mockInsertReturning }));
 const mockDb = {
   insert: jest.fn(() => ({ values: mockInsertValues })),
 };
@@ -78,11 +80,21 @@ const validQuestion: TQuestion = {
   options: ['1', '2', '3', '4'],
   correctAnswerIndex: 3,
   explanation: 'Basic arithmetic: 2 + 2 equals 4.',
+  questionType: QuestionType.Mcqs,
 };
 
 const mockEmbedding = new Array(1536).fill(0.1);
 const mockQuestionId = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890';
 const zeroUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
+
+const baseGenerateOneInput = {
+  examType: 'Victorian Selective',
+  subject: 'Mathematics',
+  topic: 'Arithmetic',
+  difficulty: 'Low' as const,
+  grade: 6,
+  questionType: QuestionType.Mcqs,
+};
 
 describe('GeneratorService', () => {
   let service: GeneratorService;
@@ -149,53 +161,40 @@ describe('GeneratorService', () => {
       mockQuestionService.saveQuestion.mockResolvedValue(
         ok({ id: mockQuestionId }),
       );
-      mockInsertValues.mockResolvedValue(undefined);
+      mockInsertReturning.mockResolvedValue([]);
     });
 
-    it('should return ok with the generated question', async () => {
-      const result = await service.generateOne({
-        subject: 'Mathematics',
-        topic: 'Arithmetic',
-        difficulty: 'Low',
-      });
+    it('should return ok with needsReview: false and questionId', async () => {
+      const result = await service.generateOne(baseGenerateOneInput);
 
       expect(result.isOk()).toBe(true);
       expect(result._unsafeUnwrap()).toEqual(
         expect.objectContaining({
-          ...validQuestion,
+          needsReview: false,
           questionId: mockQuestionId,
         }),
       );
     });
 
     it('should call embedText with the combined stem+options text', async () => {
-      await service.generateOne({
-        subject: 'Mathematics',
-        topic: 'Arithmetic',
-        difficulty: 'Low',
-      });
+      await service.generateOne(baseGenerateOneInput);
 
-      const expectedText = buildEmbeddingText(
-        validQuestion.stem,
-        validQuestion.options,
-      );
+      const expectedText = buildEmbeddingText(validQuestion);
       expect(mockEmbeddingService.embedText).toHaveBeenCalledWith(
         expectedText,
         undefined,
       );
     });
 
-    it('should call saveQuestion with the question, topic, and difficulty', async () => {
-      await service.generateOne({
-        subject: 'Mathematics',
-        topic: 'Arithmetic',
-        difficulty: 'Low',
-      });
+    it('should call saveQuestion with the question, topic, subject, difficulty, and questionType', async () => {
+      await service.generateOne(baseGenerateOneInput);
 
       expect(mockQuestionService.saveQuestion).toHaveBeenCalledWith(
         validQuestion,
         'Arithmetic',
+        'Mathematics',
         'Low',
+        QuestionType.Mcqs,
         [
           { name: 'bloomsLevel', value: 'Apply' },
           { name: 'gradeLevel', value: 'Grade 10' },
@@ -204,11 +203,7 @@ describe('GeneratorService', () => {
     });
 
     it('should insert embedding with the returned question id', async () => {
-      await service.generateOne({
-        subject: 'Mathematics',
-        topic: 'Arithmetic',
-        difficulty: 'Low',
-      });
+      await service.generateOne(baseGenerateOneInput);
 
       expect(mockInsertValues).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -246,20 +241,16 @@ describe('GeneratorService', () => {
       mockQuestionService.saveQuestion.mockResolvedValue(
         ok({ id: mockQuestionId }),
       );
-      mockInsertValues.mockResolvedValue(undefined);
+      mockInsertReturning.mockResolvedValue([]);
 
-      const result = await service.generateOne({
-        subject: 'Mathematics',
-        topic: 'Arithmetic',
-        difficulty: 'Low',
-      });
+      const result = await service.generateOne(baseGenerateOneInput);
 
       expect(result.isOk()).toBe(true);
       expect(mockDeduplicatorService.checkUniqueness).toHaveBeenCalledTimes(3);
       expect(mockQuestionService.saveQuestion).toHaveBeenCalledTimes(1);
     });
 
-    it('should return err with status 409 when all 3 attempts produce duplicates', async () => {
+    it('should return ok with needsReview: true when all 3 attempts produce duplicates', async () => {
       jest.spyOn(aiSdk, 'generateObject').mockResolvedValue({
         object: validQuestion,
         usage: { inputTokens: 5, outputTokens: 10 },
@@ -271,16 +262,12 @@ describe('GeneratorService', () => {
         ok({ isUnique: false, similarQuestionIds: ['existing-id'] }),
       );
 
-      const result = await service.generateOne({
-        subject: 'Mathematics',
-        topic: 'Arithmetic',
-        difficulty: 'Low',
-      });
+      const result = await service.generateOne(baseGenerateOneInput);
 
-      expect(result.isErr()).toBe(true);
-      expect(result._unsafeUnwrapErr()).toMatchObject({
-        status: HttpStatus.CONFLICT,
-        message: 'failed to generate unique question after 3 attempts',
+      expect(result.isOk()).toBe(true);
+      expect(result._unsafeUnwrap()).toEqual({
+        needsReview: true,
+        duplicateQuestionIds: ['existing-id'],
       });
       expect(mockDeduplicatorService.checkUniqueness).toHaveBeenCalledTimes(3);
       expect(mockQuestionService.saveQuestion).not.toHaveBeenCalled();
@@ -301,11 +288,7 @@ describe('GeneratorService', () => {
         }),
       );
 
-      const result = await service.generateOne({
-        subject: 'Mathematics',
-        topic: 'Arithmetic',
-        difficulty: 'Low',
-      });
+      const result = await service.generateOne(baseGenerateOneInput);
 
       expect(result.isErr()).toBe(true);
       expect(result._unsafeUnwrapErr().message).toBe(
@@ -338,11 +321,7 @@ describe('GeneratorService', () => {
         }),
       );
 
-      const result = await service.generateOne({
-        subject: 'Mathematics',
-        topic: 'Arithmetic',
-        difficulty: 'Low',
-      });
+      const result = await service.generateOne(baseGenerateOneInput);
 
       expect(result.isErr()).toBe(true);
       expect(result._unsafeUnwrapErr()).toMatchObject({
@@ -359,11 +338,7 @@ describe('GeneratorService', () => {
         }),
       );
 
-      const result = await service.generateOne({
-        subject: 'Mathematics',
-        topic: 'Arithmetic',
-        difficulty: 'Low',
-      });
+      const result = await service.generateOne(baseGenerateOneInput);
 
       expect(result.isErr()).toBe(true);
       expect(result._unsafeUnwrapErr().message).toBe(
@@ -388,18 +363,16 @@ describe('GeneratorService', () => {
       mockQuestionService.saveQuestion.mockResolvedValue(
         ok({ id: mockQuestionId }),
       );
-      mockInsertValues.mockResolvedValue(undefined);
+      mockInsertReturning.mockResolvedValue([]);
 
-      await service.generateOne({
-        subject: 'Mathematics',
-        topic: 'Arithmetic',
-        difficulty: 'Low',
-      });
+      await service.generateOne(baseGenerateOneInput);
 
       expect(mockQuestionService.saveQuestion).toHaveBeenCalledWith(
         validQuestion,
         'Arithmetic',
+        'Mathematics',
         'Low',
+        QuestionType.Mcqs,
         [
           { name: 'bloomsLevel', value: 'Analyze' },
           { name: 'gradeLevel', value: 'Grade 11' },
@@ -418,11 +391,7 @@ describe('GeneratorService', () => {
         }),
       );
 
-      const result = await service.generateOne({
-        subject: 'Mathematics',
-        topic: 'Arithmetic',
-        difficulty: 'Low',
-      });
+      const result = await service.generateOne(baseGenerateOneInput);
 
       expect(result.isErr()).toBe(true);
       expect(result._unsafeUnwrapErr().message).toBe('failed to tag question');
@@ -431,31 +400,26 @@ describe('GeneratorService', () => {
   });
 
   describe('failure cases', () => {
-    it('should return err when generateObject throws, skipping embedding and .NET call', async () => {
+    it('should return err when generateObject throws, skipping embedding and save', async () => {
       jest
         .spyOn(aiSdk, 'generateObject')
         .mockRejectedValue(new Error('Schema mismatch'));
 
-      const result = await service.generateOne({
-        subject: 'Mathematics',
-        topic: 'Arithmetic',
-        difficulty: 'Low',
-      });
+      const result = await service.generateOne(baseGenerateOneInput);
 
       expect(result.isErr()).toBe(true);
       expect(result._unsafeUnwrapErr()).toMatchObject({
         status: HttpStatus.INTERNAL_SERVER_ERROR,
         message: 'failed to generate question',
       });
-      // embedText is called once for grounding context, but never for question embedding
       expect(mockEmbeddingService.embedText).not.toHaveBeenCalledWith(
-        buildEmbeddingText(validQuestion.stem, validQuestion.options),
+        buildEmbeddingText(validQuestion),
         undefined,
       );
       expect(mockQuestionService.saveQuestion).not.toHaveBeenCalled();
     });
 
-    it('should return err and skip .NET call when embedding fails', async () => {
+    it('should return err and skip save when embedding fails', async () => {
       jest.spyOn(aiSdk, 'generateObject').mockResolvedValue({
         object: validQuestion,
         usage: { inputTokens: 5, outputTokens: 10 },
@@ -467,11 +431,7 @@ describe('GeneratorService', () => {
         }),
       );
 
-      const result = await service.generateOne({
-        subject: 'Mathematics',
-        topic: 'Arithmetic',
-        difficulty: 'Low',
-      });
+      const result = await service.generateOne(baseGenerateOneInput);
 
       expect(result.isErr()).toBe(true);
       expect(result._unsafeUnwrapErr().message).toBe(
@@ -481,7 +441,7 @@ describe('GeneratorService', () => {
       expect(mockDb.insert).not.toHaveBeenCalled();
     });
 
-    it('should return err and skip embedding write when .NET call fails', async () => {
+    it('should return err and skip embedding write when saveQuestion fails', async () => {
       jest.spyOn(aiSdk, 'generateObject').mockResolvedValue({
         object: validQuestion,
         usage: { inputTokens: 5, outputTokens: 10 },
@@ -505,11 +465,7 @@ describe('GeneratorService', () => {
         }),
       );
 
-      const result = await service.generateOne({
-        subject: 'Mathematics',
-        topic: 'Arithmetic',
-        difficulty: 'Low',
-      });
+      const result = await service.generateOne(baseGenerateOneInput);
 
       expect(result.isErr()).toBe(true);
       expect(result._unsafeUnwrapErr().message).toBe('failed to save question');
@@ -536,13 +492,11 @@ describe('GeneratorService', () => {
       mockQuestionService.saveQuestion.mockResolvedValue(
         ok({ id: mockQuestionId }),
       );
-      mockInsertValues.mockRejectedValueOnce(new Error('DB connection lost'));
+      mockInsertReturning.mockRejectedValueOnce(
+        new Error('DB connection lost'),
+      );
 
-      const result = await service.generateOne({
-        subject: 'Mathematics',
-        topic: 'Arithmetic',
-        difficulty: 'Low',
-      });
+      const result = await service.generateOne(baseGenerateOneInput);
 
       expect(result.isErr()).toBe(true);
       expect(result._unsafeUnwrapErr()).toMatchObject({

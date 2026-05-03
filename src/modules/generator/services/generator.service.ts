@@ -3,7 +3,6 @@ import { ConfigService } from '@nestjs/config';
 import { createAzure } from '@ai-sdk/azure';
 import { generateObject } from 'ai';
 import { err, ok, Result } from 'neverthrow';
-import { randomUUID } from 'crypto';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import type { ILangfuseTrace } from '@/common/types';
 
@@ -12,14 +11,18 @@ import { BaseService } from '@/common/services';
 import { DRIZZLE_CLIENT } from '@/database/database.module';
 import type { DrizzleClient } from '@/db';
 import {
-  QuestionSchema,
   TQuestion,
   TErrorResult,
   buildEmbeddingText,
   TLlmUsage,
   ZERO_LLM_USAGE,
   addLlmUsage,
+  McqsQuestionSchema,
+  GroupedQuestionSchema,
+  OpenEndedQuestionSchema,
+  TGenerateOneResult,
 } from '@/common/types';
+import { QuestionType, TQuestionType } from '@/db/schemas/question.schema';
 import { EmbeddingService } from '@/modules/embedding/services/embedding.service';
 import { QuestionService } from '@/modules/question/services/question.service';
 import { DeduplicatorService } from '@/modules/deduplicator/services/deduplicator.service';
@@ -33,8 +36,29 @@ import type { TGenerateOneInput } from '@/common/types';
 
 const MAX_ATTEMPTS = 3;
 
+const QUESTION_SCHEMAS = {
+  [QuestionType.Mcqs]: McqsQuestionSchema,
+  [QuestionType.Grouped]: GroupedQuestionSchema,
+  [QuestionType.Short]: OpenEndedQuestionSchema,
+  [QuestionType.Comprehensive]: OpenEndedQuestionSchema,
+  [QuestionType.Closed]: OpenEndedQuestionSchema,
+};
+
+const QUESTION_PROMPT_INSTRUCTIONS = {
+  [QuestionType.Mcqs]:
+    'The question must have exactly 4 distinct answer options. Return the index (0-3) of the correct answer and a brief explanation of why it is correct.',
+  [QuestionType.Grouped]:
+    'Create a parent question stem only — no options on the parent. Then create between 2 and 5 child questions, each with exactly 4 distinct answer options and the index (0-3) of the correct answer with an explanation.',
+  [QuestionType.Short]:
+    'Provide a concise model answer in the solution field. No options required.',
+  [QuestionType.Comprehensive]:
+    'Provide a detailed, structured model answer in the solution field. No options required.',
+  [QuestionType.Closed]:
+    'Provide a model answer in the solution field. No options required.',
+};
+
 @Injectable()
-export class GeneratorService extends BaseService {
+export class GeneratorService extends BaseService<typeof QuestionEmbeddings> {
   private readonly model: ReturnType<ReturnType<typeof createAzure>>;
 
   constructor(
@@ -50,7 +74,7 @@ export class GeneratorService extends BaseService {
     private readonly groundingService: GroundingService,
     private readonly metricsService: AppInsightsMetricsService,
   ) {
-    super(db);
+    super(db, QuestionEmbeddings);
 
     const azure = createAzure({
       resourceName: config.get('AZURE_OPENAI_RESOURCE'),
@@ -61,15 +85,26 @@ export class GeneratorService extends BaseService {
   }
 
   async generateOne({
+    examType,
     subject,
     topic,
     difficulty,
+    grade,
+    questionType,
+    negativeExamples = [],
     trace,
-  }: TGenerateOneInput & { trace?: ILangfuseTrace }): Promise<
-    Result<TQuestion & { questionId: string; usage: TLlmUsage }, TErrorResult>
-  > {
+  }: TGenerateOneInput & {
+    trace?: ILangfuseTrace;
+    negativeExamples?: string[];
+  }): Promise<Result<TGenerateOneResult, TErrorResult>> {
     // Retrieve grounding context once before the retry loop
-    const groundingContext = await this.fetchGroundingContext(subject, topic);
+    const groundingContext = await this.fetchGroundingContext(
+      examType,
+      subject,
+      topic,
+      grade,
+      questionType,
+    );
 
     let accumulatedUsage: TLlmUsage = ZERO_LLM_USAGE;
 
@@ -79,7 +114,10 @@ export class GeneratorService extends BaseService {
         subject,
         topic,
         difficulty,
+        grade,
+        questionType,
         groundingContext,
+        negativeExamples,
         trace,
       );
       if (llmResult.isErr()) return err(llmResult.error);
@@ -87,7 +125,7 @@ export class GeneratorService extends BaseService {
       accumulatedUsage = addLlmUsage(accumulatedUsage, llmUsage);
 
       // Step 2: Generate embedding
-      const embeddingText = buildEmbeddingText(question.stem, question.options);
+      const embeddingText = buildEmbeddingText(question);
       const embeddingResult = await this.embeddingService.embedText(
         embeddingText,
         trace,
@@ -112,9 +150,9 @@ export class GeneratorService extends BaseService {
         });
 
         if (attempt === MAX_ATTEMPTS) {
-          return err({
-            status: HttpStatus.CONFLICT,
-            message: 'failed to generate unique question after 3 attempts',
+          return ok({
+            needsReview: true,
+            duplicateQuestionIds: dedupResult.value.similarQuestionIds,
           });
         }
 
@@ -149,11 +187,13 @@ export class GeneratorService extends BaseService {
       if (tagResult.isErr()) return err(tagResult.error);
       accumulatedUsage = addLlmUsage(accumulatedUsage, tagResult.value.usage);
 
-      // Step 6: Save question via .NET API
+      // Step 6: Save question
       const saveResult = await this.questionService.saveQuestion(
         question,
         topic,
+        subject,
         difficulty,
+        questionType,
         tagResult.value.extraTags,
       );
       if (saveResult.isErr()) return err(saveResult.error);
@@ -176,7 +216,7 @@ export class GeneratorService extends BaseService {
 
       trace?.update({ output: { questionId } });
 
-      return ok({ ...question, questionId, usage: accumulatedUsage });
+      return ok({ needsReview: false, questionId, usage: accumulatedUsage });
     }
 
     // Unreachable — loop always returns, satisfies TypeScript
@@ -187,8 +227,11 @@ export class GeneratorService extends BaseService {
   }
 
   private async fetchGroundingContext(
+    examType: string,
     subject: string,
     topic: string,
+    grade: number,
+    questionType: TQuestionType,
   ): Promise<string[]> {
     try {
       const queryEmbedResult = await this.embeddingService.embedText(
@@ -198,8 +241,7 @@ export class GeneratorService extends BaseService {
 
       const chunksResult = await this.groundingService.retrieveRelevantChunks(
         queryEmbedResult.value.embedding,
-        subject,
-        topic,
+        { examType, subject, topic, grade, questionType },
       );
       return chunksResult.isOk() ? chunksResult.value : [];
     } catch {
@@ -212,7 +254,10 @@ export class GeneratorService extends BaseService {
     subject: string,
     topic: string,
     difficulty: string,
+    grade: number,
+    questionType: TQuestionType,
     groundingContext: string[] = [],
+    negativeExamples: string[] = [],
     trace?: ILangfuseTrace,
   ): Promise<Result<{ question: TQuestion; usage: TLlmUsage }, TErrorResult>> {
     const groundingBlock =
@@ -220,9 +265,13 @@ export class GeneratorService extends BaseService {
         ? `Use the following syllabus content as context when generating the question:\n<grounding>\n${groundingContext.join('\n\n---\n\n')}\n</grounding>\n\n`
         : '';
 
-    const prompt = `${groundingBlock}Generate a multiple-choice exam question for the subject "${subject}", topic "${topic}", difficulty level "${difficulty}".
-The question must have exactly 4 distinct answer options.
-Return the index (0-3) of the correct answer and a brief explanation of why it is correct.`;
+    const negativeBlock =
+      negativeExamples.length > 0
+        ? `\nDo NOT generate a question similar to any of the following existing questions:\n${negativeExamples.map((q, i) => `${i + 1}. "${q}"`).join('\n')}\n`
+        : '';
+
+    const prompt = `${groundingBlock}Generate a ${questionType} exam question for grade ${grade} students, subject "${subject}", topic "${topic}", difficulty level "${difficulty}".
+${QUESTION_PROMPT_INSTRUCTIONS[questionType]}${negativeBlock}`;
 
     const generation = trace?.generation({
       name: 'llm:generate-question',
@@ -234,7 +283,7 @@ Return the index (0-3) of the correct answer and a brief explanation of why it i
         (idempotencyKey) =>
           generateObject({
             model: this.model,
-            schema: QuestionSchema,
+            schema: QUESTION_SCHEMAS[questionType],
             prompt,
             headers: { 'Idempotency-Key': idempotencyKey },
           }),
@@ -261,7 +310,8 @@ Return the index (0-3) of the correct answer and a brief explanation of why it i
         },
       });
 
-      return ok({ question: result.object, usage });
+      const question = { ...result.object, questionType } as TQuestion;
+      return ok({ question, usage });
     } catch (error) {
       generation?.end({ output: { error: serializeError(error) } });
       this.logger.error({
@@ -281,12 +331,10 @@ Return the index (0-3) of the correct answer and a brief explanation of why it i
     modelName: string,
   ): Promise<Result<void, TErrorResult>> {
     try {
-      await this.db.insert(QuestionEmbeddings).values({
-        Id: randomUUID(),
+      await this.insertOne({
         QuestionId: questionId,
         Embedding: embedding,
         ModelName: modelName,
-        Created: new Date(),
       });
       return ok(undefined);
     } catch (error) {

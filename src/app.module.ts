@@ -7,9 +7,13 @@ import { ExpressAdapter } from '@bull-board/express';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 import { randomUUID } from 'crypto';
+import { ClsModule } from 'nestjs-cls';
+
+import { UserHeaderGuard } from '@/common/guards';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { databaseConfig, validate } from './config';
+import swaggerConfig from './config/swagger.config';
 import { DatabaseModule } from './database/database.module';
 import { GeneratorModule } from './modules/generator';
 import { HealthModule } from './modules/health';
@@ -27,7 +31,8 @@ import { AnalyticsModule } from './modules/analytics';
     ConfigModule.forRoot({
       isGlobal: true,
       validate,
-      load: [databaseConfig],
+      load: [databaseConfig, swaggerConfig],
+      envFilePath: ['.env'],
     }),
     LoggerModule.forRootAsync({
       inject: [ConfigService],
@@ -60,6 +65,10 @@ import { AnalyticsModule } from './modules/analytics';
     ThrottlerModule.forRoot({
       throttlers: [{ ttl: 60_000, limit: 10 }],
     }),
+    ClsModule.forRoot({
+      global: true,
+      middleware: { mount: true },
+    }),
     DatabaseModule,
     EmbeddingModule,
     DeduplicatorModule,
@@ -73,6 +82,10 @@ import { AnalyticsModule } from './modules/analytics';
     ObservabilityModule,
   ],
   controllers: [AppController],
-  providers: [AppService, { provide: APP_GUARD, useClass: ThrottlerGuard }],
+  providers: [
+    AppService,
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    { provide: APP_GUARD, useClass: UserHeaderGuard },
+  ],
 })
 export class AppModule {}

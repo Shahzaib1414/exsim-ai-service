@@ -1,10 +1,16 @@
 import { z } from 'zod';
 
+import { QuestionDifficultySchema } from '@/db/schemas/question.schema';
+
 // ── Sub-schemas ────────────────────────────────────────────────────────────
+
+export const ProgressTrendSchema = z.enum(['improving', 'declining', 'stable']);
+export type TProgressTrend = z.infer<typeof ProgressTrendSchema>;
+export const ProgressTrend = ProgressTrendSchema.enum;
 
 export const ProgressInsightSchema = z.object({
   summary: z.string(),
-  trend: z.enum(['improving', 'declining', 'stable']),
+  trend: ProgressTrendSchema,
   details: z.array(z.string()),
 });
 
@@ -34,7 +40,7 @@ export const QuestionResultSchema = z.object({
   questionId: z.string().uuid(),
   isCorrect: z.boolean(),
   timeTakenSeconds: z.number().nonnegative(),
-  difficulty: z.enum(['High', 'Medium', 'Low']),
+  difficulty: QuestionDifficultySchema,
   bloomsLevel: z.string().optional(),
 });
 

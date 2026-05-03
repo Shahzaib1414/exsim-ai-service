@@ -8,3 +8,6 @@ export function createDrizzleClient(databaseUrl: string) {
 }
 
 export type DrizzleClient = ReturnType<typeof createDrizzleClient>;
+export type DrizzleTransaction = Parameters<
+  Parameters<DrizzleClient['transaction']>[0]
+>[0];

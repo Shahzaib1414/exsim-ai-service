@@ -6,10 +6,12 @@ import { BATCH_ITEM_QUEUE } from '@/queues';
 import { TBatchItemJobData } from '@/common/types';
 import { GeneratorService } from '@/modules/generator/services/generator.service';
 import { BatchService } from '@/modules/batch/services/batch.service';
+import { QuestionService } from '@/modules/question/services/question.service';
 import { AppInsightsMetricsService } from '@/common/services';
 import { LangfuseService } from '@/common/services/langfuse.service';
 import { serializeError } from '@/utils';
 import { BaseWorker } from './base.worker';
+import { BatchItemStatus } from '@/db';
 
 @Processor(BATCH_ITEM_QUEUE, { concurrency: 5 })
 @Injectable()
@@ -20,7 +22,17 @@ export class BatchWorker extends BaseWorker {
     const metricsService = this.resolve(AppInsightsMetricsService);
     const langfuseService = this.resolve(LangfuseService);
 
-    const { batchItemId, batchId, subject, topic, difficulty } = job.data;
+    const {
+      batchItemId,
+      batchId,
+      examType,
+      subject,
+      topic,
+      difficulty,
+      grade,
+      questionType,
+      negativeExampleIds = [],
+    } = job.data;
     const logContext = {
       queueName: job.queueName,
       jobId: job.id,
@@ -34,7 +46,7 @@ export class BatchWorker extends BaseWorker {
         throw new Error(itemResult.error.message);
       }
 
-      if (itemResult.value.Status === 'generated') {
+      if (itemResult.value.Status === BatchItemStatus.COMPLETED) {
         this.logger.info({
           message: 'Skipping already-generated item',
           data: { batchItemId },
@@ -42,7 +54,7 @@ export class BatchWorker extends BaseWorker {
         return;
       }
 
-      job.log(
+      void job.log(
         `Processing batch item ${batchItemId} (attempt ${job.attemptsMade + 1})`,
       );
       this.logger.info({
@@ -51,6 +63,7 @@ export class BatchWorker extends BaseWorker {
           ...logContext,
           batchItemId,
           batchId,
+          examType,
           subject,
           topic,
           difficulty,
@@ -60,22 +73,59 @@ export class BatchWorker extends BaseWorker {
       const trace = langfuseService.client.trace({
         id: batchItemId,
         name: 'batch-item',
-        metadata: { batchId, subject, topic, difficulty },
+        metadata: {
+          batchId,
+          examType,
+          subject,
+          topic,
+          difficulty,
+          grade,
+          questionType,
+        },
       });
 
+      const questionService = this.resolve(QuestionService);
+      const negativeExamples =
+        await questionService.getQuestionTexts(negativeExampleIds);
+
       const result = await generatorService.generateOne({
+        examType,
         subject,
         topic,
         difficulty,
+        grade,
+        questionType,
+        negativeExamples,
         trace,
       });
 
       if (result.isOk()) {
-        const { questionId, usage } = result.value;
-        trace.update({ output: { questionId } });
-        await batchService.markItemGenerated(batchItemId, questionId, usage);
-        metricsService.trackBatchItemSuccess(batchId);
-        metricsService.trackLlmTokenUsage('generator', usage);
+        const value = result.value;
+        if (value.needsReview) {
+          trace.update({
+            output: {
+              needsReview: true,
+              duplicateQuestionIds: value.duplicateQuestionIds,
+            },
+          });
+          await batchService.markItemNeedsReview(
+            batchItemId,
+            value.duplicateQuestionIds,
+          );
+          metricsService.trackBatchItemFailure(
+            batchId,
+            'duplicate after max attempts — flagged for review',
+          );
+        } else {
+          trace.update({ output: { questionId: value.questionId } });
+          await batchService.markItemCompleted(
+            batchItemId,
+            value.questionId,
+            value.usage,
+          );
+          metricsService.trackBatchItemSuccess(batchId);
+          metricsService.trackLlmTokenUsage('generator', value.usage);
+        }
       } else {
         trace.update({ output: { error: result.error.message } });
         await batchService.markItemFailed(batchItemId, result.error.message);
@@ -84,7 +134,7 @@ export class BatchWorker extends BaseWorker {
       }
 
       await batchService.updateBatchStatus(batchId);
-      job.log(`Successfully processed batch item ${batchItemId}`);
+      void job.log(`Successfully processed batch item ${batchItemId}`);
       this.logger.info({
         message: 'Batch item processed successfully',
         data: logContext,

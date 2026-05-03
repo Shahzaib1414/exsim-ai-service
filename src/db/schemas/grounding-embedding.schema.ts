@@ -8,6 +8,7 @@ import {
 } from 'drizzle-orm/pg-core';
 
 import { baseEntityColumns } from './base.schema';
+import type { TGroundingMetadata } from '@/common/types/grounding.types';
 
 export const GroundingEmbeddings = pgTable(
   'GroundingEmbeddings',
@@ -18,9 +19,7 @@ export const GroundingEmbeddings = pgTable(
     ModelName: text('ModelName').notNull(),
     SourceDoc: text('SourceDoc').notNull(),
     PageNumber: integer('PageNumber'),
-    Subject: text('Subject'),
-    Topic: text('Topic'),
-    Metadata: jsonb('Metadata'),
+    Metadata: jsonb('Metadata').notNull().$type<TGroundingMetadata>(),
   },
   (table) => [
     index('idx_GroundingEmbeddings_Embedding')

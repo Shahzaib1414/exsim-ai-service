@@ -1,29 +1,25 @@
-import { integer, pgTable, text, varchar } from 'drizzle-orm/pg-core';
+import { integer, jsonb, pgTable, text, varchar } from 'drizzle-orm/pg-core';
 import { z } from 'zod';
 
 import { baseEntityColumns } from './base.schema';
-import { QuestionDifficultySchema } from './question.schema';
+import type { TBatchMetadata } from '@/common/types/batch.types';
 
 export const BatchStatusSchema = z.enum([
-  'pending',
-  'sampling',
-  'running',
-  'completed',
-  'failed',
+  'PENDING',
+  'IN_PROGRESS',
+  'COMPLETED',
+  'FAILED',
 ]);
 export type TBatchStatus = z.infer<typeof BatchStatusSchema>;
+export const BatchStatus = BatchStatusSchema.enum;
 
 export const Batches = pgTable('Batches', {
   ...baseEntityColumns,
-  Subject: text('Subject').notNull(),
-  Topic: text('Topic').notNull(),
-  Difficulty: varchar('Difficulty', { length: 10 })
-    .notNull()
-    .$type<z.infer<typeof QuestionDifficultySchema>>(),
+  Metadata: jsonb('Metadata').notNull().$type<TBatchMetadata>(),
   RequestedCount: integer('RequestedCount').notNull(),
   Status: varchar('Status', { length: 20 })
     .notNull()
-    .default('pending')
+    .default(BatchStatus.PENDING)
     .$type<TBatchStatus>(),
   TotalPromptTokens: integer('TotalPromptTokens').notNull().default(0),
   TotalCompletionTokens: integer('TotalCompletionTokens').notNull().default(0),

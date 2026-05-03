@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 import {
   batchResponseSchema,
+  batchItemResponseSchema,
   batchWithItemsResponseSchema,
   createBatchSchema,
   getBatchItemsQuerySchema,
@@ -70,6 +71,19 @@ export const batchContract = c.router(
       body: sampleBatchSchema,
       responses: {
         200: batchResponseSchema,
+        404: NotFoundError,
+        409: ConflictError,
+        500: InternalError,
+      },
+    },
+    retryDuplicateItem: {
+      summary:
+        'Re-enqueue a NEEDS_REVIEW item with its duplicate questions as negative examples',
+      method: 'POST',
+      path: '/items/:itemId/retry',
+      body: z.object({}),
+      responses: {
+        200: batchItemResponseSchema,
         404: NotFoundError,
         409: ConflictError,
         500: InternalError,

@@ -30,3 +30,7 @@ export const Questions = pgTable('Questions', {
 export type TQuestionType = z.infer<typeof QuestionTypeSchema>;
 export type TQuestionDifficulty = z.infer<typeof QuestionDifficultySchema>;
 export type TQuestionStatus = z.infer<typeof QuestionStatusSchema>;
+
+export const QuestionStatus = QuestionStatusSchema.enum;
+export const QuestionType = QuestionTypeSchema.enum;
+export const QuestionDifficulty = QuestionDifficultySchema.enum;
