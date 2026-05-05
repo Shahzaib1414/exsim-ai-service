@@ -2,15 +2,18 @@ import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Langfuse from 'langfuse';
 
+import type { Config } from '@/config';
+
 @Injectable()
 export class LangfuseService implements OnModuleDestroy {
   readonly client: Langfuse;
 
-  constructor(private readonly config: ConfigService) {
+  constructor(private readonly config: ConfigService<Config, true>) {
+    const langfuse = this.config.get('langfuse', { infer: true });
     this.client = new Langfuse({
-      publicKey: this.config.get<string>('LANGFUSE_PUBLIC_KEY')!,
-      secretKey: this.config.get<string>('LANGFUSE_SECRET_KEY')!,
-      baseUrl: this.config.get<string>('LANGFUSE_BASE_URL')!,
+      publicKey: langfuse.publicKey,
+      secretKey: langfuse.secretKey,
+      baseUrl: langfuse.baseUrl,
     });
   }
 

@@ -5,7 +5,7 @@ import { generateOpenApi } from '@ts-rest/open-api';
 
 import {
   generatorContract,
-  batchContract,
+  questionBatchContract,
   groundingContract,
   analyticsContract,
 } from '@/contracts';
@@ -16,7 +16,7 @@ const c = initContract();
 // Each sub-contract already has its own pathPrefix defined.
 const apiContract = c.router({
   generator: generatorContract,
-  batch: batchContract,
+  questionBatch: questionBatchContract,
   grounding: groundingContract,
   analytics: analyticsContract,
 });

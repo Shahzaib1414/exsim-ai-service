@@ -12,8 +12,18 @@ import { ClsModule } from 'nestjs-cls';
 import { UserHeaderGuard } from '@/common/guards';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import { databaseConfig, validate } from './config';
-import swaggerConfig from './config/swagger.config';
+import {
+  validate,
+  appConfig,
+  databaseConfig,
+  redisConfig,
+  azureConfig,
+  langfuseConfig,
+  emailConfig,
+  dotnetConfig,
+  swaggerConfig,
+} from './config';
+import type { Config } from './config';
 import { DatabaseModule } from './database/database.module';
 import { GeneratorModule } from './modules/generator';
 import { HealthModule } from './modules/health';
@@ -22,7 +32,7 @@ import { DeduplicatorModule } from './modules/deduplicator';
 import { ValidatorModule } from './modules/validator';
 import { TaggerModule } from './modules/tagger';
 import { ObservabilityModule } from './common/modules';
-import { BatchModule } from './modules/batch';
+import { QuestionBatchModule } from './modules/question-batch';
 import { GroundingModule } from './modules/grounding';
 import { AnalyticsModule } from './modules/analytics';
 
@@ -31,29 +41,38 @@ import { AnalyticsModule } from './modules/analytics';
     ConfigModule.forRoot({
       isGlobal: true,
       validate,
-      load: [databaseConfig, swaggerConfig],
+      load: [
+        appConfig,
+        databaseConfig,
+        redisConfig,
+        azureConfig,
+        langfuseConfig,
+        emailConfig,
+        dotnetConfig,
+        swaggerConfig,
+      ],
       envFilePath: ['.env'],
     }),
     LoggerModule.forRootAsync({
       inject: [ConfigService],
-      useFactory: (config: ConfigService) => {
-        const isDev = config.get<string>('NODE_ENV') !== 'production';
+      useFactory: (config: ConfigService<Config, true>) => {
+        const app = config.get('app', { infer: true });
         return {
           pinoHttp: {
-            level: config.get<string>('LOG_LEVEL') ?? 'info',
+            level: app.logLevel,
             genReqId: () => randomUUID(),
-            transport: isDev
-              ? { target: 'pino-pretty', options: { singleLine: true } }
-              : undefined,
+            transport:
+              app.nodeEnv !== 'production'
+                ? { target: 'pino-pretty', options: { singleLine: true } }
+                : undefined,
           },
         };
       },
     }),
     BullModule.forRootAsync({
-      imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        connection: { url: config.get<string>('REDIS_URL') },
+      useFactory: (config: ConfigService<Config, true>) => ({
+        connection: { url: config.get('redis', { infer: true }).url },
       }),
     }),
     BullBoardModule.forRootAsync({
@@ -76,7 +95,7 @@ import { AnalyticsModule } from './modules/analytics';
     TaggerModule,
     HealthModule,
     GeneratorModule,
-    BatchModule,
+    QuestionBatchModule,
     GroundingModule,
     AnalyticsModule,
     ObservabilityModule,

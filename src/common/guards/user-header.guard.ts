@@ -48,6 +48,7 @@ export class UserHeaderGuard implements CanActivate {
         isActive: users.isActive,
         roleId: roles.id,
         roleName: roles.name,
+        email: users.email,
       })
       .from(users)
       .innerJoin(userRoles, eq(userRoles.userId, users.id))
@@ -72,6 +73,7 @@ export class UserHeaderGuard implements CanActivate {
       roleId: row.roleId,
       firstName: row.firstName ?? '',
       lastName: row.lastName ?? '',
+      email: row.email,
     };
 
     this.cls.set('user', user);

@@ -19,13 +19,17 @@ jest.mock('@ai-sdk/azure', () => ({
 }));
 
 const mockConfig = {
-  get: jest.fn((key: string) => {
-    const values: Record<string, string> = {
-      AZURE_OPENAI_RESOURCE: 'my-resource',
-      AZURE_OPENAI_KEY: 'test-key',
-      AZURE_OPENAI_DEPLOYMENT_EMBEDDING: 'text-embedding-3-small',
-    };
-    return values[key];
+  get: jest.fn().mockImplementation((key: string) => {
+    if (key === 'azure')
+      return {
+        embedding: {
+          resource: 'my-resource',
+          key: 'test-key',
+          deployment: 'text-embedding-3-small',
+          endpoint: 'https://my-resource.openai.azure.com',
+        },
+      };
+    return undefined;
   }),
 };
 

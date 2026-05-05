@@ -2,14 +2,16 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { LoggerModule } from 'nestjs-pino';
 
-import { BATCH_ITEM_QUEUE, QueueModule } from '@/queues';
+import { QUESTION_BATCH_ITEM_QUEUE, QueueModule } from '@/queues';
+import { EmailModule } from '@/modules/email';
 
 @Module({
   imports: [
     ConfigModule.forRoot(),
     LoggerModule,
-    QueueModule.register({ queues: [BATCH_ITEM_QUEUE] }),
+    QueueModule.register({ queues: [QUESTION_BATCH_ITEM_QUEUE] }),
+    EmailModule,
   ],
-  exports: [QueueModule],
+  exports: [QueueModule, EmailModule],
 })
 export class BaseWorkerModule {}

@@ -7,44 +7,55 @@ import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { BaseService } from '@/common/services';
 import { DRIZZLE_CLIENT } from '@/database/database.module';
 import type { DrizzleClient } from '@/db';
-import { Batches, BatchStatus, TBatchSelect } from '@/db/schemas/batch.schema';
 import {
-  BatchItems,
-  BatchItemStatus,
-  TBatchItemSelect,
-} from '@/db/schemas/batch-item.schema';
-import type { TErrorResult, TLlmUsage } from '@/common/types';
+  QuestionBatches,
+  QuestionBatchStatus,
+  TQuestionBatchSelect,
+} from '@/db/schemas/question-batch.schema';
+import {
+  QuestionBatchItems,
+  QuestionBatchItemStatus,
+  TQuestionBatchItemSelect,
+} from '@/db/schemas/question-batch-item.schema';
+import { QuestionStatus } from '@/db/schemas/question.schema';
+import type { TAuthUserReq, TErrorResult, TLlmUsage } from '@/common/types';
 import { serializeError, calculateGpt4oCost, formatCostUsd } from '@/utils';
-import { InjectBatchItemQueue, PROCESS_BATCH_ITEM_JOB } from '@/queues';
+import {
+  InjectQuestionBatchItemQueue,
+  PROCESS_QUESTION_BATCH_ITEM_JOB,
+} from '@/queues';
 import { createMediumFrequencyJobOptions } from '@/common/queue.types';
 import {
-  TCreateBatch,
-  TBatchResponse,
-  TBatchWithItemsResponse,
-  TBatchItemJobData,
-  TBatchItemResponse,
+  TCreateQuestionBatch,
+  TQuestionBatchResponse,
+  TQuestionBatchWithItemsResponse,
+  TQuestionBatchItemJobData,
+  TQuestionBatchItemResponse,
 } from '@/common/types';
 import { AppInsightsMetricsService } from '@/common/services';
+import { QuestionService } from '@/modules/question/services/question.service';
 
 @Injectable()
-export class BatchService extends BaseService {
+export class QuestionBatchService extends BaseService {
   constructor(
     @Inject(DRIZZLE_CLIENT) db: DrizzleClient,
-    @InjectBatchItemQueue()
-    private readonly batchItemQueue: Queue<TBatchItemJobData>,
-    @InjectPinoLogger(BatchService.name)
+    @InjectQuestionBatchItemQueue()
+    private readonly questionBatchItemQueue: Queue<TQuestionBatchItemJobData>,
+    @InjectPinoLogger(QuestionBatchService.name)
     private readonly logger: PinoLogger,
     private readonly metricsService: AppInsightsMetricsService,
+    private readonly questionService: QuestionService,
   ) {
     super(db);
   }
 
-  async createBatch(
-    dto: TCreateBatch,
-  ): Promise<Result<TBatchResponse, TErrorResult>> {
+  async createQuestionBatch(
+    dto: TCreateQuestionBatch,
+    user: TAuthUserReq,
+  ): Promise<Result<TQuestionBatchResponse, TErrorResult>> {
     try {
-      const batch = await this.insertInto(Batches, {
-        Metadata: {
+      const questionBatch = await this.insertInto(QuestionBatches, {
+        MetaData: {
           examType: dto.examType,
           subject: dto.subject,
           topic: dto.topic,
@@ -53,45 +64,50 @@ export class BatchService extends BaseService {
           questionType: dto.questionType,
         },
         RequestedCount: dto.count,
-        Status: BatchStatus.PENDING,
+        Status: QuestionBatchStatus.PENDING,
       });
 
-      const batchId = batch.Id;
+      const questionBatchId = questionBatch.Id;
 
       const items = await this.insertManyInto(
-        BatchItems,
+        QuestionBatchItems,
         Array.from({ length: dto.count }, () => ({
-          BatchId: batchId,
-          Status: BatchItemStatus.PENDING,
+          QuestionBatchId: questionBatchId,
+          Status: QuestionBatchItemStatus.PENDING,
           AttemptCount: 0,
         })),
       );
 
       await Promise.all(
         items.map((item) =>
-          this.batchItemQueue.add(
-            PROCESS_BATCH_ITEM_JOB,
+          this.questionBatchItemQueue.add(
+            PROCESS_QUESTION_BATCH_ITEM_JOB,
             {
-              batchItemId: item.Id,
-              batchId,
+              questionBatchItemId: item.Id,
+              questionBatchId,
               examType: dto.examType,
               subject: dto.subject,
               topic: dto.topic,
               difficulty: dto.difficulty,
               grade: dto.grade,
               questionType: dto.questionType,
+              user,
             },
             createMediumFrequencyJobOptions(item.Id),
           ),
         ),
       );
 
-      await this.updateIn(Batches, eq(Batches.Id, batchId), {
-        Status: BatchStatus.IN_PROGRESS,
-      });
+      await this.updateIn(
+        QuestionBatches,
+        eq(QuestionBatches.Id, questionBatchId),
+        {
+          Status: QuestionBatchStatus.IN_PROGRESS,
+        },
+      );
 
       return ok({
-        id: batchId,
+        id: questionBatchId,
         metadata: {
           examType: dto.examType,
           subject: dto.subject,
@@ -103,45 +119,47 @@ export class BatchService extends BaseService {
         requestedCount: dto.count,
         completedCount: 0,
         failedCount: 0,
-        status: BatchStatus.IN_PROGRESS,
+        status: QuestionBatchStatus.IN_PROGRESS,
         totalPromptTokens: 0,
         totalCompletionTokens: 0,
         totalTokens: 0,
-        estimatedCostUsd: '0.000000',
+        estimatedCostUsd: '0.00',
       });
     } catch (error) {
       this.logger.error({
-        message: 'Failed to create batch',
+        message: 'Failed to create question batch',
         data: { error: serializeError(error) },
       });
       return err({
         status: HttpStatus.INTERNAL_SERVER_ERROR,
-        message: 'failed to create batch',
+        message: 'failed to create question batch',
       });
     }
   }
 
-  async getBatch(id: string): Promise<Result<TBatchResponse, TErrorResult>> {
+  async getQuestionBatch(
+    id: string,
+  ): Promise<Result<TQuestionBatchResponse, TErrorResult>> {
     try {
       const rows = await this.db
         .select()
-        .from(Batches)
-        .where(eq(Batches.Id, id));
+        .from(QuestionBatches)
+        .where(eq(QuestionBatches.Id, id));
       const batch = rows[0];
 
       if (!batch) {
         return err({
           status: HttpStatus.NOT_FOUND,
-          message: 'batch not found',
+          message: 'question batch not found',
         });
       }
 
       const items = await this.db
         .select()
-        .from(BatchItems)
-        .where(eq(BatchItems.BatchId, id));
+        .from(QuestionBatchItems)
+        .where(eq(QuestionBatchItems.QuestionBatchId, id));
 
-      return ok(this.toBatchResponse(batch, items));
+      return ok(this.toQuestionBatchResponse(batch, items));
     } catch (error) {
       this.logger.error({
         message: 'Failed to get batch',
@@ -154,42 +172,44 @@ export class BatchService extends BaseService {
     }
   }
 
-  async listBatches(): Promise<Result<TBatchResponse[], TErrorResult>> {
+  async listQuestionBatches(): Promise<
+    Result<TQuestionBatchResponse[], TErrorResult>
+  > {
     try {
-      const batches = await this.db.select().from(Batches);
+      const batches = await this.db.select().from(QuestionBatches);
 
       const results = await Promise.all(
         batches.map(async (batch) => {
           const items = await this.db
             .select()
-            .from(BatchItems)
-            .where(eq(BatchItems.BatchId, batch.Id));
-          return this.toBatchResponse(batch, items);
+            .from(QuestionBatchItems)
+            .where(eq(QuestionBatchItems.QuestionBatchId, batch.Id));
+          return this.toQuestionBatchResponse(batch, items);
         }),
       );
 
       return ok(results);
     } catch (error) {
       this.logger.error({
-        message: 'Failed to list batches',
+        message: 'Failed to list Question batches',
         data: { error: serializeError(error) },
       });
       return err({
         status: HttpStatus.INTERNAL_SERVER_ERROR,
-        message: 'failed to list batches',
+        message: 'failed to list question batches',
       });
     }
   }
 
-  async getBatchItems(
+  async getQuestionBatchItems(
     batchId: string,
     statusFilter?: string,
-  ): Promise<Result<TBatchWithItemsResponse, TErrorResult>> {
+  ): Promise<Result<TQuestionBatchWithItemsResponse, TErrorResult>> {
     try {
       const batches = await this.db
         .select()
-        .from(Batches)
-        .where(eq(Batches.Id, batchId));
+        .from(QuestionBatches)
+        .where(eq(QuestionBatches.Id, batchId));
       const batch = batches[0];
 
       if (!batch) {
@@ -201,16 +221,22 @@ export class BatchService extends BaseService {
 
       const whereClause = statusFilter
         ? and(
-            eq(BatchItems.BatchId, batchId),
-            eq(BatchItems.Status, statusFilter as TBatchItemSelect['Status']),
+            eq(QuestionBatchItems.QuestionBatchId, batchId),
+            eq(
+              QuestionBatchItems.Status,
+              statusFilter as TQuestionBatchItemSelect['Status'],
+            ),
           )
-        : eq(BatchItems.BatchId, batchId);
+        : eq(QuestionBatchItems.QuestionBatchId, batchId);
 
-      const items = await this.db.select().from(BatchItems).where(whereClause);
+      const items = await this.db
+        .select()
+        .from(QuestionBatchItems)
+        .where(whereClause);
 
       return ok({
-        ...this.toBatchResponse(batch, items),
-        items: items.map((item) => this.toBatchItemResponse(item)),
+        ...this.toQuestionBatchResponse(batch, items),
+        items: items.map((item) => this.toQuestionBatchItemResponse(item)),
       });
     } catch (error) {
       this.logger.error({
@@ -226,12 +252,12 @@ export class BatchService extends BaseService {
 
   async getItem(
     itemId: string,
-  ): Promise<Result<TBatchItemSelect, TErrorResult>> {
+  ): Promise<Result<TQuestionBatchItemSelect, TErrorResult>> {
     try {
       const rows = await this.db
         .select()
-        .from(BatchItems)
-        .where(eq(BatchItems.Id, itemId));
+        .from(QuestionBatchItems)
+        .where(eq(QuestionBatchItems.Id, itemId));
       const item = rows[0];
 
       if (!item) {
@@ -260,13 +286,17 @@ export class BatchService extends BaseService {
     usage: TLlmUsage,
   ): Promise<Result<void, TErrorResult>> {
     try {
-      await this.updateIn(BatchItems, eq(BatchItems.Id, itemId), {
-        Status: BatchItemStatus.COMPLETED,
-        QuestionId: questionId,
-        PromptTokens: usage.promptTokens,
-        CompletionTokens: usage.completionTokens,
-        TotalTokens: usage.totalTokens,
-      });
+      await this.updateIn(
+        QuestionBatchItems,
+        eq(QuestionBatchItems.Id, itemId),
+        {
+          Status: QuestionBatchItemStatus.COMPLETED,
+          QuestionId: questionId,
+          PromptTokens: usage.promptTokens,
+          CompletionTokens: usage.completionTokens,
+          TotalTokens: usage.totalTokens,
+        },
+      );
       return ok(undefined);
     } catch (error) {
       this.logger.error({
@@ -286,17 +316,21 @@ export class BatchService extends BaseService {
   ): Promise<Result<void, TErrorResult>> {
     try {
       const rows = await this.db
-        .select({ AttemptCount: BatchItems.AttemptCount })
-        .from(BatchItems)
-        .where(eq(BatchItems.Id, itemId));
+        .select({ AttemptCount: QuestionBatchItems.AttemptCount })
+        .from(QuestionBatchItems)
+        .where(eq(QuestionBatchItems.Id, itemId));
 
       const currentAttempts = rows[0]?.AttemptCount ?? 0;
 
-      await this.updateIn(BatchItems, eq(BatchItems.Id, itemId), {
-        Status: BatchItemStatus.FAILED,
-        AttemptCount: currentAttempts + 1,
-        ErrorMessage: errorMessage,
-      });
+      await this.updateIn(
+        QuestionBatchItems,
+        eq(QuestionBatchItems.Id, itemId),
+        {
+          Status: QuestionBatchItemStatus.FAILED,
+          AttemptCount: currentAttempts + 1,
+          ErrorMessage: errorMessage,
+        },
+      );
 
       return ok(undefined);
     } catch (error) {
@@ -311,35 +345,39 @@ export class BatchService extends BaseService {
     }
   }
 
-  async updateBatchStatus(
+  async updateQuestionBatchStatus(
     batchId: string,
   ): Promise<Result<void, TErrorResult>> {
     try {
       const items = await this.db
         .select()
-        .from(BatchItems)
-        .where(eq(BatchItems.BatchId, batchId));
+        .from(QuestionBatchItems)
+        .where(eq(QuestionBatchItems.QuestionBatchId, batchId));
 
       const allTerminal = items.every(
         (i) =>
-          i.Status === BatchItemStatus.COMPLETED ||
-          i.Status === BatchItemStatus.FAILED,
+          i.Status === QuestionBatchItemStatus.COMPLETED ||
+          i.Status === QuestionBatchItemStatus.FAILED,
       );
 
       if (!allTerminal) return ok(undefined);
 
-      const anyFailed = items.some((i) => i.Status === BatchItemStatus.FAILED);
-      const newStatus = anyFailed ? BatchStatus.FAILED : BatchStatus.COMPLETED;
+      const anyFailed = items.some(
+        (i) => i.Status === QuestionBatchItemStatus.FAILED,
+      );
+      const newStatus = anyFailed
+        ? QuestionBatchStatus.FAILED
+        : QuestionBatchStatus.COMPLETED;
 
       // Aggregate token counts across all items
       const tokenTotals = await this.db
         .select({
-          totalPromptTokens: sum(BatchItems.PromptTokens),
-          totalCompletionTokens: sum(BatchItems.CompletionTokens),
-          totalTokens: sum(BatchItems.TotalTokens),
+          totalPromptTokens: sum(QuestionBatchItems.PromptTokens),
+          totalCompletionTokens: sum(QuestionBatchItems.CompletionTokens),
+          totalTokens: sum(QuestionBatchItems.TotalTokens),
         })
-        .from(BatchItems)
-        .where(eq(BatchItems.BatchId, batchId));
+        .from(QuestionBatchItems)
+        .where(eq(QuestionBatchItems.QuestionBatchId, batchId));
 
       const pt = Number(tokenTotals[0]?.totalPromptTokens ?? 0);
       const ct = Number(tokenTotals[0]?.totalCompletionTokens ?? 0);
@@ -352,7 +390,7 @@ export class BatchService extends BaseService {
         }),
       );
 
-      await this.updateIn(Batches, eq(Batches.Id, batchId), {
+      await this.updateIn(QuestionBatches, eq(QuestionBatches.Id, batchId), {
         Status: newStatus,
         TotalPromptTokens: pt,
         TotalCompletionTokens: ct,
@@ -361,7 +399,7 @@ export class BatchService extends BaseService {
       });
 
       const failedCount = items.filter(
-        (i) => i.Status === BatchItemStatus.FAILED,
+        (i) => i.Status === QuestionBatchItemStatus.FAILED,
       ).length;
       const failureRate = failedCount / items.length;
       this.metricsService.trackBatchCompletion(batchId, failureRate);
@@ -379,19 +417,20 @@ export class BatchService extends BaseService {
     }
   }
 
-  private toBatchResponse(
-    batch: TBatchSelect,
-    items: TBatchItemSelect[],
-  ): TBatchResponse {
+  private toQuestionBatchResponse(
+    batch: TQuestionBatchSelect,
+    items: TQuestionBatchItemSelect[],
+  ): TQuestionBatchResponse {
     return {
       id: batch.Id,
-      metadata: batch.Metadata,
+      metadata: batch.MetaData,
       requestedCount: batch.RequestedCount,
       completedCount: items.filter(
-        (i) => i.Status === BatchItemStatus.COMPLETED,
+        (i) => i.Status === QuestionBatchItemStatus.COMPLETED,
       ).length,
-      failedCount: items.filter((i) => i.Status === BatchItemStatus.FAILED)
-        .length,
+      failedCount: items.filter(
+        (i) => i.Status === QuestionBatchItemStatus.FAILED,
+      ).length,
       status: batch.Status,
       totalPromptTokens: batch.TotalPromptTokens,
       totalCompletionTokens: batch.TotalCompletionTokens,
@@ -400,44 +439,15 @@ export class BatchService extends BaseService {
     };
   }
 
-  async markItemNeedsReview(
-    itemId: string,
-    duplicateQuestionIds: string[],
-  ): Promise<Result<void, TErrorResult>> {
-    try {
-      const rows = await this.db
-        .select({ AttemptCount: BatchItems.AttemptCount })
-        .from(BatchItems)
-        .where(eq(BatchItems.Id, itemId));
-      const currentAttempts = rows[0]?.AttemptCount ?? 0;
-
-      await this.updateIn(BatchItems, eq(BatchItems.Id, itemId), {
-        Status: BatchItemStatus.NEEDS_REVIEW,
-        AttemptCount: currentAttempts + 1,
-        DuplicateQuestions: duplicateQuestionIds.join(','),
-      });
-      return ok(undefined);
-    } catch (error) {
-      this.logger.error({
-        message: 'Failed to mark item NEEDS_REVIEW',
-        data: { itemId, error: serializeError(error) },
-      });
-      return err({
-        status: HttpStatus.INTERNAL_SERVER_ERROR,
-        message: 'failed to mark item NEEDS_REVIEW',
-      });
-    }
-  }
-
   async retryDuplicateItem(
     itemId: string,
-  ): Promise<Result<TBatchItemResponse, TErrorResult>> {
+    user: TAuthUserReq,
+  ): Promise<Result<TQuestionBatchItemResponse, TErrorResult>> {
     try {
-      const itemRows = await this.db
-        .select()
-        .from(BatchItems)
-        .where(eq(BatchItems.Id, itemId));
-      const item = itemRows[0];
+      const item = await this.db.query.QuestionBatchItems.findFirst({
+        where: eq(QuestionBatchItems.Id, itemId),
+        with: { question: true, batch: true },
+      });
 
       if (!item) {
         return err({
@@ -446,44 +456,50 @@ export class BatchService extends BaseService {
         });
       }
 
-      if (item.Status !== BatchItemStatus.NEEDS_REVIEW) {
+      if (!item.question || item.question.Status !== QuestionStatus.Duplicate) {
         return err({
           status: HttpStatus.CONFLICT,
-          message: 'only items with NEEDS_REVIEW status can be retried',
+          message: 'associated question is not a duplicate',
         });
       }
 
-      const batchRows = await this.db
-        .select()
-        .from(Batches)
-        .where(eq(Batches.Id, item.BatchId));
-      const batch = batchRows[0];
-
-      if (!batch) {
+      if (!item.batch) {
         return err({
           status: HttpStatus.NOT_FOUND,
           message: 'batch not found',
         });
       }
 
-      const negativeExampleIds = item.DuplicateQuestions
-        ? item.DuplicateQuestions.split(',').filter(Boolean)
+      const negativeExampleIds = item.question.DuplicateQuestionIds
+        ? item.question.DuplicateQuestionIds.split(',').filter(Boolean)
         : [];
 
-      await this.updateIn(BatchItems, eq(BatchItems.Id, itemId), {
-        Status: BatchItemStatus.PENDING,
-        DuplicateQuestions: null,
-        ErrorMessage: null,
-      });
+      const deleteResult = await this.questionService.deleteQuestion(
+        item.question.Id,
+      );
+      if (deleteResult.isErr()) return err(deleteResult.error);
+
+      await this.updateIn(
+        QuestionBatchItems,
+        eq(QuestionBatchItems.Id, itemId),
+        {
+          Status: QuestionBatchItemStatus.PENDING,
+          QuestionId: null,
+          ErrorMessage: null,
+          PromptTokens: 0,
+          CompletionTokens: 0,
+          TotalTokens: 0,
+        },
+      );
 
       const { examType, subject, topic, difficulty, grade, questionType } =
-        batch.Metadata;
+        item.batch.MetaData;
 
-      await this.batchItemQueue.add(
-        PROCESS_BATCH_ITEM_JOB,
+      await this.questionBatchItemQueue.add(
+        PROCESS_QUESTION_BATCH_ITEM_JOB,
         {
-          batchItemId: itemId,
-          batchId: item.BatchId,
+          questionBatchItemId: itemId,
+          questionBatchId: item.QuestionBatchId,
           examType,
           subject,
           topic,
@@ -491,16 +507,17 @@ export class BatchService extends BaseService {
           grade,
           questionType,
           negativeExampleIds,
+          user,
         },
         createMediumFrequencyJobOptions(itemId),
       );
 
       const updatedRows = await this.db
         .select()
-        .from(BatchItems)
-        .where(eq(BatchItems.Id, itemId));
+        .from(QuestionBatchItems)
+        .where(eq(QuestionBatchItems.Id, itemId));
 
-      return ok(this.toBatchItemResponse(updatedRows[0]));
+      return ok(this.toQuestionBatchItemResponse(updatedRows[0]));
     } catch (error) {
       this.logger.error({
         message: 'Failed to retry duplicate item',
@@ -513,14 +530,60 @@ export class BatchService extends BaseService {
     }
   }
 
-  private toBatchItemResponse(item: TBatchItemSelect) {
+  async discardDuplicateItem(
+    itemId: string,
+  ): Promise<Result<void, TErrorResult>> {
+    try {
+      const item = await this.db.query.QuestionBatchItems.findFirst({
+        where: eq(QuestionBatchItems.Id, itemId),
+        with: { question: true },
+      });
+
+      if (!item) {
+        return err({
+          status: HttpStatus.NOT_FOUND,
+          message: 'batch item not found',
+        });
+      }
+
+      if (!item.question || item.question.Status !== QuestionStatus.Duplicate) {
+        return err({
+          status: HttpStatus.CONFLICT,
+          message: 'associated question is not a duplicate',
+        });
+      }
+
+      const deleteResult = await this.questionService.deleteQuestion(
+        item.question.Id,
+      );
+      if (deleteResult.isErr()) return err(deleteResult.error);
+
+      await this.db
+        .delete(QuestionBatchItems)
+        .where(eq(QuestionBatchItems.Id, itemId));
+
+      await this.updateQuestionBatchStatus(item.QuestionBatchId);
+
+      return ok(undefined);
+    } catch (error) {
+      this.logger.error({
+        message: 'Failed to discard duplicate item',
+        data: { itemId, error: serializeError(error) },
+      });
+      return err({
+        status: HttpStatus.INTERNAL_SERVER_ERROR,
+        message: 'failed to discard duplicate item',
+      });
+    }
+  }
+
+  private toQuestionBatchItemResponse(item: TQuestionBatchItemSelect) {
     return {
       id: item.Id,
       status: item.Status,
       questionId: item.QuestionId ?? null,
       attemptCount: item.AttemptCount,
       errorMessage: item.ErrorMessage ?? null,
-      duplicateQuestions: item.DuplicateQuestions ?? null,
       promptTokens: item.PromptTokens,
       completionTokens: item.CompletionTokens,
       totalTokens: item.TotalTokens,

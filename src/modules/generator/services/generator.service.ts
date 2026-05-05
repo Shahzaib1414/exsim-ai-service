@@ -6,7 +6,7 @@ import { err, ok, Result } from 'neverthrow';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import type { ILangfuseTrace } from '@/common/types';
 
-import { TEnv } from '@/config';
+import type { Config } from '@/config';
 import { BaseService } from '@/common/services';
 import { DRIZZLE_CLIENT } from '@/database/database.module';
 import type { DrizzleClient } from '@/db';
@@ -65,7 +65,7 @@ export class GeneratorService extends BaseService<typeof QuestionEmbeddings> {
     @Inject(DRIZZLE_CLIENT) db: DrizzleClient,
     @InjectPinoLogger(GeneratorService.name)
     private readonly logger: PinoLogger,
-    private readonly config: ConfigService<TEnv, true>,
+    private readonly config: ConfigService<Config, true>,
     private readonly embeddingService: EmbeddingService,
     private readonly questionService: QuestionService,
     private readonly deduplicatorService: DeduplicatorService,
@@ -76,12 +76,13 @@ export class GeneratorService extends BaseService<typeof QuestionEmbeddings> {
   ) {
     super(db, QuestionEmbeddings);
 
-    const azure = createAzure({
-      resourceName: config.get('AZURE_OPENAI_RESOURCE'),
-      apiKey: config.get('AZURE_OPENAI_KEY'),
+    const azure = this.config.get('azure', { infer: true });
+    const client = createAzure({
+      resourceName: azure.openai.resource,
+      apiKey: azure.openai.key,
     });
 
-    this.model = azure(config.get('AZURE_OPENAI_DEPLOYMENT_GPT4O'));
+    this.model = client(azure.openai.deployment);
   }
 
   async generateOne({
@@ -140,6 +141,8 @@ export class GeneratorService extends BaseService<typeof QuestionEmbeddings> {
         return err(dedupResult.error);
       }
 
+      let duplicateQuestionIds: string[] | undefined;
+
       if (!dedupResult.value.isUnique) {
         this.logger.warn({
           message: 'Duplicate question detected',
@@ -149,14 +152,11 @@ export class GeneratorService extends BaseService<typeof QuestionEmbeddings> {
           },
         });
 
-        if (attempt === MAX_ATTEMPTS) {
-          return ok({
-            needsReview: true,
-            duplicateQuestionIds: dedupResult.value.similarQuestionIds,
-          });
+        if (attempt < MAX_ATTEMPTS) {
+          continue;
         }
 
-        continue;
+        duplicateQuestionIds = dedupResult.value.similarQuestionIds;
       }
 
       // Step 4: Validate question quality
@@ -195,6 +195,7 @@ export class GeneratorService extends BaseService<typeof QuestionEmbeddings> {
         difficulty,
         questionType,
         tagResult.value.extraTags,
+        duplicateQuestionIds,
       );
       if (saveResult.isErr()) return err(saveResult.error);
       const { id: questionId } = saveResult.value;
@@ -216,7 +217,7 @@ export class GeneratorService extends BaseService<typeof QuestionEmbeddings> {
 
       trace?.update({ output: { questionId } });
 
-      return ok({ needsReview: false, questionId, usage: accumulatedUsage });
+      return ok({ questionId, usage: accumulatedUsage });
     }
 
     // Unreachable — loop always returns, satisfies TypeScript

@@ -4,12 +4,12 @@ import { createAzure } from '@ai-sdk/azure';
 import { embed } from 'ai';
 import { err, ok, Result } from 'neverthrow';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
-import type { ILangfuseTrace } from '@/common/types';
 
-import { TEnv } from '@/config';
+import type { Config } from '@/config';
 import { serializeError, withLlmRetry } from '@/utils';
 import { TErrorResult, EMBEDDING_MODEL_NAME } from '@/common/types';
 import { AppInsightsMetricsService } from '@/common/services';
+import type { ILangfuseTrace } from '@/common/types';
 import { EmbeddingService } from './embedding.service';
 
 @Injectable()
@@ -19,20 +19,19 @@ export class AzureEmbeddingService extends EmbeddingService {
   >;
 
   constructor(
-    private readonly config: ConfigService<TEnv, true>,
+    private readonly config: ConfigService<Config, true>,
     @InjectPinoLogger(AzureEmbeddingService.name)
     private readonly logger: PinoLogger,
     private readonly metricsService: AppInsightsMetricsService,
   ) {
     super();
-    const azure = createAzure({
-      resourceName: config.get('AZURE_OPENAI_EMBEDDING_RESOURCE'),
-      apiKey: config.get('AZURE_OPENAI_EMBEDDING_KEY'),
+    const azure = this.config.get('azure', { infer: true });
+    const client = createAzure({
+      resourceName: azure.embedding.resource,
+      apiKey: azure.embedding.key,
     });
 
-    this.embeddingModel = azure.embedding(
-      config.get('AZURE_OPENAI_DEPLOYMENT_EMBEDDING'),
-    );
+    this.embeddingModel = client.embedding(azure.embedding.deployment);
   }
 
   get modelName(): string {

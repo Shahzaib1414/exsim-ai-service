@@ -4,13 +4,13 @@ import { HttpService } from '@nestjs/axios';
 import { err, ok, Result } from 'neverthrow';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { z } from 'zod';
-import { inArray, sql } from 'drizzle-orm';
+import { eq, inArray, sql } from 'drizzle-orm';
 
-import { TEnv } from '@/config';
+import type { Config } from '@/config';
 import { serializeError } from '@/utils';
 import { BaseService } from '@/common/services';
 import { DRIZZLE_CLIENT } from '@/database/database.module';
-import type { DrizzleClient } from '@/db';
+import type { DrizzleClient, DrizzleTransaction } from '@/db';
 import {
   TQuestion,
   CreateQuestionPayloadSchema,
@@ -33,6 +33,7 @@ import {
   Questions,
   questionOptions,
   questionTags,
+  QuestionEmbeddings,
 } from '@/db/schemas';
 
 @Injectable()
@@ -44,10 +45,10 @@ export class QuestionService extends BaseService {
     @InjectPinoLogger(QuestionService.name)
     private readonly logger: PinoLogger,
     private readonly httpService: HttpService,
-    private readonly config: ConfigService<TEnv, true>,
+    private readonly config: ConfigService<Config, true>,
   ) {
     super(db);
-    this.baseUrl = config.get('DOTNET_API_URL');
+    this.baseUrl = this.config.get('dotnet', { infer: true }).apiUrl;
   }
 
   async saveQuestion(
@@ -57,8 +58,52 @@ export class QuestionService extends BaseService {
     difficulty: z.infer<typeof QuestionDifficultySchema>,
     questionType: TQuestionType,
     extraTags: TExtraTag[] = [],
+    duplicateQuestionIds?: string[],
   ): Promise<Result<TSaveQuestionResponse, TErrorResult>> {
-    const payload = CreateQuestionPayloadSchema.parse({
+    const payload = this.buildPayload(
+      question,
+      topic,
+      difficulty,
+      questionType,
+      extraTags,
+    );
+
+    try {
+      const questionId = await this.db.transaction(async (tx) => {
+        const categoryId = await this.resolveCategory(tx, subject);
+        const topicId = await this.resolveTopic(tx, topic, categoryId);
+        const qId = await this.insertQuestionRow(tx, payload, topicId, {
+          duplicateQuestionIds,
+        });
+        for (const child of payload.childQuestions) {
+          await this.insertQuestionRow(tx, child, topicId, {
+            parentQuestionId: qId,
+          });
+        }
+        return qId;
+      });
+
+      return ok({ id: questionId });
+    } catch (error) {
+      this.logger.error({
+        message: 'Failed to save question',
+        data: { error: serializeError(error) },
+      });
+      return err({
+        status: HttpStatus.INTERNAL_SERVER_ERROR,
+        message: 'failed to save question',
+      });
+    }
+  }
+
+  private buildPayload(
+    question: TQuestion,
+    topic: string,
+    difficulty: z.infer<typeof QuestionDifficultySchema>,
+    questionType: TQuestionType,
+    extraTags: TExtraTag[],
+  ) {
+    return CreateQuestionPayloadSchema.parse({
       statement: question.stem,
       solution:
         question.questionType === QuestionType.Grouped
@@ -85,7 +130,11 @@ export class QuestionService extends BaseService {
                 isCorrect: index === child.correctAnswerIndex,
               })),
               childQuestions: [],
-              tags: [],
+              tags: [
+                { name: TOPIC_TAG_NAME, value: topic },
+                { name: DIFFICULTY_TAG_NAME, value: difficulty },
+                { name: TYPE_TAG_NAME, value: questionType },
+              ],
             }))
           : [],
       tags: [
@@ -95,107 +144,115 @@ export class QuestionService extends BaseService {
         ...extraTags,
       ],
     });
+  }
 
+  private async resolveCategory(
+    tx: DrizzleTransaction,
+    subject: string,
+  ): Promise<string> {
+    const [existing] = await tx
+      .select({ Id: Categories.Id })
+      .from(Categories)
+      .where(sql`LOWER(${Categories.Name}) = ${subject.toLowerCase()}`)
+      .limit(1);
+    if (existing) return existing.Id;
+    const [created] = await tx
+      .insert(Categories)
+      .values({ Name: subject, Description: '' })
+      .returning({ Id: Categories.Id });
+    return created.Id;
+  }
+
+  private async resolveTopic(
+    tx: DrizzleTransaction,
+    topic: string,
+    categoryId: string,
+  ): Promise<string> {
+    const [existing] = await tx
+      .select({ Id: Topics.Id })
+      .from(Topics)
+      .where(sql`LOWER(${Topics.Name}) = ${topic.toLowerCase()}`)
+      .limit(1);
+    if (existing) return existing.Id;
+    const [created] = await tx
+      .insert(Topics)
+      .values({ Name: topic, Description: '', CategoryId: categoryId })
+      .returning({ Id: Topics.Id });
+    return created.Id;
+  }
+
+  private async insertQuestionRow(
+    tx: DrizzleTransaction,
+    payload: ReturnType<typeof CreateQuestionPayloadSchema.parse>,
+    topicId: string,
+    opts: { duplicateQuestionIds?: string[]; parentQuestionId?: string } = {},
+  ): Promise<string> {
+    const [row] = await tx
+      .insert(Questions)
+      .values({
+        Statement: payload.statement,
+        Solution: payload.solution,
+        ImageUrl: payload.imageUrl ?? null,
+        TopicId: topicId,
+        ParentQuestionId: opts.parentQuestionId ?? null,
+        Status: opts.duplicateQuestionIds
+          ? QuestionStatus.Duplicate
+          : QuestionStatus.Draft,
+        DuplicateQuestionIds: opts.duplicateQuestionIds?.join(',') ?? null,
+      })
+      .returning({ Id: Questions.Id });
+
+    if (payload.options.length > 0) {
+      await tx.insert(questionOptions).values(
+        payload.options.map((opt) => ({
+          Option: opt.option,
+          IsCorrect: opt.isCorrect,
+          QuestionId: row.Id,
+        })),
+      );
+    }
+
+    if (payload.tags.length > 0) {
+      await tx.insert(questionTags).values(
+        payload.tags.map((tag) => ({
+          Name: tag.name,
+          Value: tag.value,
+          QuestionId: row.Id,
+        })) as (typeof questionTags.$inferInsert)[],
+      );
+    }
+
+    return row.Id;
+  }
+
+  async deleteQuestion(
+    questionId: string,
+  ): Promise<Result<void, TErrorResult>> {
     try {
-      const questionId = await this.db.transaction(async (tx) => {
-        // -------------------------
-        // 1. CATEGORY (check-or-create)
-        // -------------------------
-        const [existingCategory] = await tx
-          .select({ Id: Categories.Id })
-          .from(Categories)
-          .where(sql`LOWER(${Categories.Name}) = ${subject.toLowerCase()}`)
-          .limit(1);
-
-        let resolvedCategoryId: string;
-        if (existingCategory) {
-          resolvedCategoryId = existingCategory.Id;
-        } else {
-          const [newCategory] = await tx
-            .insert(Categories)
-            .values({ Name: subject, Description: '' })
-            .returning({ Id: Categories.Id });
-          resolvedCategoryId = newCategory.Id;
-        }
-
-        // -------------------------
-        // 2. TOPIC (check-or-create)
-        // -------------------------
-        const [existingTopic] = await tx
-          .select({ Id: Topics.Id })
-          .from(Topics)
-          .where(sql`LOWER(${Topics.Name}) = ${topic.toLowerCase()}`)
-          .limit(1);
-
-        let resolvedTopicId: string;
-        if (existingTopic) {
-          resolvedTopicId = existingTopic.Id;
-        } else {
-          const [newTopic] = await tx
-            .insert(Topics)
-            .values({
-              Name: topic,
-              Description: '',
-              CategoryId: resolvedCategoryId,
-            })
-            .returning({ Id: Topics.Id });
-          resolvedTopicId = newTopic.Id;
-        }
-
-        // -------------------------
-        // 3. QUESTION
-        // -------------------------
-        const [newQuestion] = await tx
-          .insert(Questions)
-          .values({
-            Statement: payload.statement,
-            Solution: payload.solution,
-            ImageUrl: payload.imageUrl ?? null,
-            TopicId: resolvedTopicId,
-            Status: QuestionStatus.Draft,
-          })
-          .returning({ Id: Questions.Id });
-        const qId = newQuestion.Id;
-
-        // -------------------------
-        // 4. OPTIONS
-        // -------------------------
-        if (payload.options.length > 0) {
-          await tx.insert(questionOptions).values(
-            payload.options.map((opt) => ({
-              Option: opt.option,
-              IsCorrect: opt.isCorrect,
-              QuestionId: qId,
-            })),
-          );
-        }
-
-        // -------------------------
-        // 5. TAGS
-        // -------------------------
-        if (payload.tags.length > 0) {
-          await tx.insert(questionTags).values(
-            payload.tags.map((tag) => ({
-              Name: tag.name,
-              Value: tag.value,
-              QuestionId: qId,
-            })) as (typeof questionTags.$inferInsert)[],
-          );
-        }
-
-        return qId;
+      await this.db.transaction(async (tx) => {
+        await tx
+          .delete(QuestionEmbeddings)
+          .where(eq(QuestionEmbeddings.QuestionId, questionId));
+        await tx
+          .delete(questionTags)
+          .where(eq(questionTags.QuestionId, questionId));
+        await tx
+          .delete(questionOptions)
+          .where(eq(questionOptions.QuestionId, questionId));
+        await tx
+          .delete(Questions)
+          .where(eq(Questions.ParentQuestionId, questionId));
+        await tx.delete(Questions).where(eq(Questions.Id, questionId));
       });
-
-      return ok({ id: questionId });
+      return ok(undefined);
     } catch (error) {
       this.logger.error({
-        message: 'Failed to save question',
-        data: { error: serializeError(error) },
+        message: 'Failed to delete question',
+        data: { questionId, error: serializeError(error) },
       });
-
       return err({
         status: HttpStatus.INTERNAL_SERVER_ERROR,
-        message: 'failed to save question',
+        message: 'failed to delete question',
       });
     }
   }

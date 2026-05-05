@@ -14,6 +14,7 @@ export const AuthUserReqSchema = z.object({
   roleId: z.string(),
   firstName: z.string(),
   lastName: z.string(),
+  email: z.string(),
 });
 
 export type TAuthUserReq = z.infer<typeof AuthUserReqSchema>;

@@ -27,14 +27,17 @@ jest.mock('@ai-sdk/azure', () => ({
 }));
 
 const mockConfig = {
-  get: jest.fn((key: string) => {
-    const values: Record<string, string> = {
-      AZURE_OPENAI_RESOURCE: 'my-resource',
-      AZURE_OPENAI_KEY: 'test-key',
-      AZURE_OPENAI_DEPLOYMENT_GPT4O: 'gpt-4o',
-      AZURE_OPENAI_DEPLOYMENT_EMBEDDING: 'text-embedding-3-small',
-    };
-    return values[key];
+  get: jest.fn().mockImplementation((key: string) => {
+    if (key === 'azure')
+      return {
+        openai: {
+          resource: 'my-resource',
+          key: 'test-key',
+          deployment: 'gpt-4o',
+          endpoint: 'https://my-resource.openai.azure.com',
+        },
+      };
+    return undefined;
   }),
 };
 
@@ -164,15 +167,12 @@ describe('GeneratorService', () => {
       mockInsertReturning.mockResolvedValue([]);
     });
 
-    it('should return ok with needsReview: false and questionId', async () => {
+    it('should return ok with questionId and usage', async () => {
       const result = await service.generateOne(baseGenerateOneInput);
 
       expect(result.isOk()).toBe(true);
       expect(result._unsafeUnwrap()).toEqual(
-        expect.objectContaining({
-          needsReview: false,
-          questionId: mockQuestionId,
-        }),
+        expect.objectContaining({ questionId: mockQuestionId }),
       );
     });
 
@@ -199,6 +199,7 @@ describe('GeneratorService', () => {
           { name: 'bloomsLevel', value: 'Apply' },
           { name: 'gradeLevel', value: 'Grade 10' },
         ],
+        undefined,
       );
     });
 
@@ -250,7 +251,7 @@ describe('GeneratorService', () => {
       expect(mockQuestionService.saveQuestion).toHaveBeenCalledTimes(1);
     });
 
-    it('should return ok with needsReview: true when all 3 attempts produce duplicates', async () => {
+    it('should save as Duplicate and return ok when all 3 attempts produce duplicates', async () => {
       jest.spyOn(aiSdk, 'generateObject').mockResolvedValue({
         object: validQuestion,
         usage: { inputTokens: 5, outputTokens: 10 },
@@ -261,16 +262,26 @@ describe('GeneratorService', () => {
       mockDeduplicatorService.checkUniqueness.mockResolvedValue(
         ok({ isUnique: false, similarQuestionIds: ['existing-id'] }),
       );
+      mockValidatorService.validate.mockResolvedValue(
+        ok({ isValid: true, issues: [], usage: zeroUsage }),
+      );
+      mockTaggerService.tag.mockResolvedValue(
+        ok({ extraTags: [], usage: zeroUsage }),
+      );
+      mockQuestionService.saveQuestion.mockResolvedValue(
+        ok({ id: mockQuestionId }),
+      );
+      mockInsertReturning.mockResolvedValue([]);
 
       const result = await service.generateOne(baseGenerateOneInput);
 
       expect(result.isOk()).toBe(true);
-      expect(result._unsafeUnwrap()).toEqual({
-        needsReview: true,
-        duplicateQuestionIds: ['existing-id'],
-      });
+      expect(result._unsafeUnwrap()).toEqual(
+        expect.objectContaining({ questionId: mockQuestionId }),
+      );
       expect(mockDeduplicatorService.checkUniqueness).toHaveBeenCalledTimes(3);
-      expect(mockQuestionService.saveQuestion).not.toHaveBeenCalled();
+      // Question is saved with duplicate IDs on the 3rd attempt
+      expect(mockQuestionService.saveQuestion).toHaveBeenCalledTimes(1);
     });
 
     it('should return err immediately when deduplicator service fails', async () => {
@@ -377,6 +388,7 @@ describe('GeneratorService', () => {
           { name: 'bloomsLevel', value: 'Analyze' },
           { name: 'gradeLevel', value: 'Grade 11' },
         ],
+        undefined,
       );
     });
 

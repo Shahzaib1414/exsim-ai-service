@@ -3587,6 +3587,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@types/nodemailer@npm:^8.0.0":
+  version: 8.0.0
+  resolution: "@types/nodemailer@npm:8.0.0"
+  dependencies:
+    "@types/node": "npm:*"
+  checksum: 10c0/e5031df5d6557f4cdb9a0dbe1a96f3f54dc59c23d47477103fd42b5c9bc925ea1b4e51be560af5620b4d0c66fcfb015ce5ca8f914ed2f3a3086be6149d5932da
+  languageName: node
+  linkType: hard
+
 "@types/pdf-parse@npm:^1.1.5":
   version: 1.1.5
   resolution: "@types/pdf-parse@npm:1.1.5"
@@ -6083,6 +6092,7 @@ __metadata:
     "@types/jest": "npm:^30.0.0"
     "@types/multer": "npm:^2.1.0"
     "@types/node": "npm:^22.10.7"
+    "@types/nodemailer": "npm:^8.0.0"
     "@types/pdf-parse": "npm:^1.1.5"
     "@types/pg": "npm:^8.20.0"
     "@types/supertest": "npm:^6.0.2"
@@ -6098,6 +6108,7 @@ __metadata:
     eslint-config-prettier: "npm:^10.0.1"
     eslint-plugin-prettier: "npm:^5.2.2"
     globals: "npm:^16.0.0"
+    handlebars: "npm:^4.7.9"
     husky: "npm:^9.1.7"
     jest: "npm:^30.0.0"
     langfuse: "npm:^3.38.20"
@@ -6105,6 +6116,7 @@ __metadata:
     nestjs-cls: "npm:^6.2.0"
     nestjs-pino: "npm:^4.6.1"
     neverthrow: "npm:^8.2.0"
+    nodemailer: "npm:^8.0.7"
     pdf-parse: "npm:^2.4.5"
     pg: "npm:^8.20.0"
     pino: "npm:^10.3.1"
@@ -8417,6 +8429,13 @@ __metadata:
   version: 2.0.38
   resolution: "node-releases@npm:2.0.38"
   checksum: 10c0/db9909234ed750c5b9d0075f83214cd16b76370b54eab50e3554f3ba939ba7ac39f3aca2ddf93471ae8553dbde2ea9354b0ae380c9cff1f8e53b55e414903413
+  languageName: node
+  linkType: hard
+
+"nodemailer@npm:^8.0.7":
+  version: 8.0.7
+  resolution: "nodemailer@npm:8.0.7"
+  checksum: 10c0/f1580263ad7fba64a493c47c4d78f06679c0da9cc3becbe6b628311a16474c07286fc4e530006ea262537594ccc475dc569fd519275222fd01f99c315976aeac
   languageName: node
   linkType: hard
 

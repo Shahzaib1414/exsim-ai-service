@@ -6,6 +6,7 @@ import { getLoggerToken } from 'nestjs-pino';
 
 import { TaggerService } from './tagger.service';
 import { AppInsightsMetricsService } from '@/common/services';
+import { QuestionType } from '@/db/schemas/question.schema';
 import type { TQuestion } from '@/common/types';
 
 jest.mock('ai', () => ({
@@ -17,13 +18,17 @@ jest.mock('@ai-sdk/azure', () => ({
 }));
 
 const mockConfig = {
-  get: jest.fn((key: string) => {
-    const values: Record<string, string> = {
-      AZURE_OPENAI_RESOURCE: 'my-resource',
-      AZURE_OPENAI_KEY: 'test-key',
-      AZURE_OPENAI_DEPLOYMENT_GPT4O: 'gpt-4o',
-    };
-    return values[key];
+  get: jest.fn().mockImplementation((key: string) => {
+    if (key === 'azure')
+      return {
+        openai: {
+          resource: 'my-resource',
+          key: 'test-key',
+          deployment: 'gpt-4o',
+          endpoint: 'https://my-resource.openai.azure.com',
+        },
+      };
+    return undefined;
   }),
 };
 
@@ -38,6 +43,7 @@ const validQuestion: TQuestion = {
   options: ['Nucleus', 'Mitochondria', 'Ribosome', 'Golgi apparatus'],
   correctAnswerIndex: 1,
   explanation: 'The mitochondria produces ATP through cellular respiration.',
+  questionType: QuestionType.Mcqs,
 };
 
 describe('TaggerService', () => {

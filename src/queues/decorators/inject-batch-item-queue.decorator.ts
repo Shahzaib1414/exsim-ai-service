@@ -1,6 +1,6 @@
 import { InjectQueue } from '@nestjs/bullmq';
 
-import { BATCH_ITEM_QUEUE } from '../queue.constants';
+import { QUESTION_BATCH_ITEM_QUEUE } from '../queue.constants';
 
-export const InjectBatchItemQueue = (): ParameterDecorator =>
-  InjectQueue(BATCH_ITEM_QUEUE);
+export const InjectQuestionBatchItemQueue = (): ParameterDecorator =>
+  InjectQueue(QUESTION_BATCH_ITEM_QUEUE);

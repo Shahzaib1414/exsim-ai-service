@@ -1,6 +1,8 @@
-import { ISwaggerConfig } from '@/common';
 import { registerAs } from '@nestjs/config';
+import { ISwaggerConfig } from '@/common';
 
-export default registerAs<ISwaggerConfig>('swagger', () => ({
+export type { ISwaggerConfig };
+
+export const swaggerConfig = registerAs<ISwaggerConfig>('swagger', () => ({
   enabled: process.env['SWAGGER_ENABLED'] === 'true',
 }));

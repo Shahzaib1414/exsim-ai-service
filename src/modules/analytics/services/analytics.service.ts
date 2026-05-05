@@ -6,7 +6,7 @@ import { eq } from 'drizzle-orm';
 import { err, ok, Result } from 'neverthrow';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 
-import { TEnv } from '@/config';
+import type { Config } from '@/config';
 import { BaseService } from '@/common/services';
 import { DRIZZLE_CLIENT } from '@/database/database.module';
 import type { DrizzleClient } from '@/db';
@@ -33,18 +33,19 @@ export class AnalyticsService extends BaseService<typeof AIAngelReports> {
     @Inject(DRIZZLE_CLIENT) db: DrizzleClient,
     @InjectPinoLogger(AnalyticsService.name)
     private readonly logger: PinoLogger,
-    private readonly config: ConfigService<TEnv, true>,
+    private readonly config: ConfigService<Config, true>,
     private readonly langfuseService: LangfuseService,
     private readonly metricsService: AppInsightsMetricsService,
   ) {
     super(db, AIAngelReports);
 
-    const azure = createAzure({
-      resourceName: config.get('AZURE_OPENAI_RESOURCE'),
-      apiKey: config.get('AZURE_OPENAI_KEY'),
+    const azure = this.config.get('azure', { infer: true });
+    const client = createAzure({
+      resourceName: azure.openai.resource,
+      apiKey: azure.openai.key,
     });
 
-    this.model = azure(config.get('AZURE_OPENAI_DEPLOYMENT_GPT4O'));
+    this.model = client(azure.openai.deployment);
   }
 
   async generateAngelReport(

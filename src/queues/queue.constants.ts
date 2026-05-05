@@ -1,2 +1,2 @@
-export const BATCH_ITEM_QUEUE = 'batch-item';
-export const PROCESS_BATCH_ITEM_JOB = 'process-batch-item';
+export const QUESTION_BATCH_ITEM_QUEUE = 'question-batch-item';
+export const PROCESS_QUESTION_BATCH_ITEM_JOB = 'process-question-batch-item';

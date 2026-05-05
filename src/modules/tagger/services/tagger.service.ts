@@ -6,7 +6,7 @@ import { ok, err, Result } from 'neverthrow';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import type { ILangfuseTrace } from '@/common/types';
 
-import { TEnv } from '@/config';
+import type { Config } from '@/config';
 import {
   TErrorResult,
   TQuestion,
@@ -15,6 +15,7 @@ import {
   TExtraTag,
   TLlmUsage,
 } from '@/common/types';
+import { QuestionType } from '@/db/schemas/question.schema';
 import { serializeError, withLlmRetry } from '@/utils';
 import { AppInsightsMetricsService } from '@/common/services';
 
@@ -23,17 +24,18 @@ export class TaggerService {
   private readonly model: ReturnType<ReturnType<typeof createAzure>>;
 
   constructor(
-    private readonly config: ConfigService<TEnv, true>,
+    private readonly config: ConfigService<Config, true>,
     @InjectPinoLogger(TaggerService.name)
     private readonly logger: PinoLogger,
     private readonly metricsService: AppInsightsMetricsService,
   ) {
-    const azure = createAzure({
-      resourceName: config.get('AZURE_OPENAI_RESOURCE'),
-      apiKey: config.get('AZURE_OPENAI_KEY'),
+    const azure = this.config.get('azure', { infer: true });
+    const client = createAzure({
+      resourceName: azure.openai.resource,
+      apiKey: azure.openai.key,
     });
 
-    this.model = azure(config.get('AZURE_OPENAI_DEPLOYMENT_GPT4O'));
+    this.model = client(azure.openai.deployment);
   }
 
   async tag(
@@ -45,17 +47,14 @@ export class TaggerService {
   ): Promise<
     Result<{ extraTags: TExtraTag[]; usage: TLlmUsage }, TErrorResult>
   > {
+    const questionBody = this.buildQuestionBody(question);
     const prompt = `You are an educational metadata specialist. Analyze the following exam question and assign metadata tags.
 
 Subject: ${subject}
 Topic: ${topic}
 Difficulty: ${difficulty}
 
-Question stem: "${question.stem}"
-Options:
-${question.options.map((o, i) => `  ${i}. ${o}`).join('\n')}
-Correct answer index: ${question.correctAnswerIndex}
-Explanation: "${question.explanation}"
+${questionBody}
 
 Determine:
 1. bloomsLevel: Which level of Bloom's Taxonomy does this question target? Choose one of: Remember, Understand, Apply, Analyze, Evaluate, Create.
@@ -115,5 +114,28 @@ Determine:
         message: 'failed to tag question',
       });
     }
+  }
+
+  private buildQuestionBody(question: TQuestion): string {
+    if (question.questionType === QuestionType.Mcqs) {
+      return `Question stem: "${question.stem}"
+Options:
+${question.options.map((o, i) => `  ${i}. ${o}`).join('\n')}
+Correct answer index: ${question.correctAnswerIndex}
+Explanation: "${question.explanation}"`;
+    }
+    if (question.questionType === QuestionType.Grouped) {
+      const childLines = question.childQuestions
+        .map(
+          (c, idx) =>
+            `  Child ${idx + 1}: "${c.stem}"\n  Options: ${c.options.map((o, i) => `${i}. ${o}`).join(', ')}\n  Correct index: ${c.correctAnswerIndex}`,
+        )
+        .join('\n');
+      return `Question stem: "${question.stem}"
+Child questions:
+${childLines}`;
+    }
+    return `Question stem: "${question.stem}"
+Solution: "${question.solution}"`;
   }
 }

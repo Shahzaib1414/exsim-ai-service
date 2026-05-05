@@ -16,7 +16,7 @@ export const users = pgTable('AspNetUsers', {
   // Identity base fields
   userName: varchar('UserName', { length: 256 }),
   normalizedUserName: varchar('NormalizedUserName', { length: 256 }),
-  email: varchar('Email', { length: 256 }),
+  email: varchar('Email', { length: 256 }).notNull(),
   normalizedEmail: varchar('NormalizedEmail', { length: 256 }),
   emailConfirmed: boolean('EmailConfirmed').notNull().default(false),
   passwordHash: text('PasswordHash'),

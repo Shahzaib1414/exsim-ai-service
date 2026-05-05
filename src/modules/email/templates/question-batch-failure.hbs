@@ -1,0 +1,71 @@
+<!-- Status badge -->
+<div style="text-align: center; margin-bottom: 28px;">
+  <div style="display: inline-block; background-color: #fdecea; border: 1.5px solid #f5c6c2; border-radius: 50px; padding: 8px 20px;">
+    <span style="color: #c62828; font-size: 13px; font-weight: 600; letter-spacing: 0.4px;">&#10007;&nbsp; Batch Completed with Failures</span>
+  </div>
+</div>
+
+<!-- Heading -->
+<h2 style="margin: 0 0 8px; color: #1a2d45; font-size: 22px; font-weight: 700; text-align: center;">
+  Question Batch Failed
+</h2>
+<p style="margin: 0 0 28px; color: #6b7a8d; font-size: 14px; text-align: center;">
+  One or more questions could not be generated. Please review the details below.
+</p>
+
+<!-- Stats grid -->
+<table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom: 28px;">
+  <tr>
+    <td width="31%" style="background-color: #f0f9f0; border: 1px solid #c8e6c9; border-radius: 6px; padding: 14px 12px; text-align: center;">
+      <div style="color: #2e7d32; font-size: 24px; font-weight: 700;">{{completedCount}}</div>
+      <div style="color: #4caf50; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px;">Completed</div>
+    </td>
+    <td width="3%"></td>
+    <td width="31%" style="background-color: #fdecea; border: 1px solid #f5c6c2; border-radius: 6px; padding: 14px 12px; text-align: center;">
+      <div style="color: #c62828; font-size: 24px; font-weight: 700;">{{failedCount}}</div>
+      <div style="color: #e53935; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px;">Failed</div>
+    </td>
+    <td width="3%"></td>
+    <td width="31%" style="background-color: #fafafa; border: 1px solid #e0e0e0; border-radius: 6px; padding: 14px 12px; text-align: center;">
+      <div style="color: #1a2d45; font-size: 24px; font-weight: 700;">{{requestedCount}}</div>
+      <div style="color: #6b7a8d; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px;">Requested</div>
+    </td>
+  </tr>
+</table>
+
+<!-- Batch details -->
+<table width="100%" cellpadding="0" cellspacing="0" style="border: 1px solid #e1e8f0; border-radius: 6px; overflow: hidden; margin-bottom: 28px;">
+  <tr style="background-color: #f8fafc;">
+    <td colspan="2" style="padding: 12px 16px; border-bottom: 1px solid #e1e8f0;">
+      <span style="color: #4a5568; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px;">Batch Details</span>
+    </td>
+  </tr>
+  <tr>
+    <td style="padding: 11px 16px; border-bottom: 1px solid #f0f4f8; color: #6b7a8d; font-size: 13px; width: 40%;">Batch ID</td>
+    <td style="padding: 11px 16px; border-bottom: 1px solid #f0f4f8; color: #1a2d45; font-size: 13px; font-weight: 500; font-family: monospace;">{{batchId}}</td>
+  </tr>
+  <tr>
+    <td style="padding: 11px 16px; border-bottom: 1px solid #f0f4f8; color: #6b7a8d; font-size: 13px;">Exam Type</td>
+    <td style="padding: 11px 16px; border-bottom: 1px solid #f0f4f8; color: #1a2d45; font-size: 13px; font-weight: 500;">{{examType}}</td>
+  </tr>
+  <tr>
+    <td style="padding: 11px 16px; border-bottom: 1px solid #f0f4f8; color: #6b7a8d; font-size: 13px;">Subject</td>
+    <td style="padding: 11px 16px; border-bottom: 1px solid #f0f4f8; color: #1a2d45; font-size: 13px; font-weight: 500;">{{subject}}</td>
+  </tr>
+  <tr>
+    <td style="padding: 11px 16px; border-bottom: 1px solid #f0f4f8; color: #6b7a8d; font-size: 13px;">Topic</td>
+    <td style="padding: 11px 16px; border-bottom: 1px solid #f0f4f8; color: #1a2d45; font-size: 13px; font-weight: 500;">{{topic}}</td>
+  </tr>
+  <tr>
+    <td style="padding: 11px 16px; border-bottom: 1px solid #f0f4f8; color: #6b7a8d; font-size: 13px;">Difficulty</td>
+    <td style="padding: 11px 16px; border-bottom: 1px solid #f0f4f8; color: #1a2d45; font-size: 13px; font-weight: 500;">{{difficulty}}</td>
+  </tr>
+  <tr>
+    <td style="padding: 11px 16px; color: #6b7a8d; font-size: 13px;">Question Type</td>
+    <td style="padding: 11px 16px; color: #1a2d45; font-size: 13px; font-weight: 500;">{{questionType}}</td>
+  </tr>
+</table>
+
+<p style="margin: 0; color: #9aa5b4; font-size: 12px; text-align: center;">
+  Completed at {{completedAt}}
+</p>

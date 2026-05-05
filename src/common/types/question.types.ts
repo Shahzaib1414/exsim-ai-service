@@ -23,15 +23,20 @@ export const ChildQuestionSchema = z.object({
 
 export const GroupedQuestionSchema = z.object({
   stem: z.string(),
-  options: z.array(z.string()).default([]),
   childQuestions: z.array(ChildQuestionSchema).min(1),
 });
 
 export const OpenEndedQuestionSchema = z.object({
   stem: z.string(),
-  options: z.array(z.string()).default([]),
   solution: z.string(),
 });
+
+export const QuestionSchema = z.union([
+  OpenEndedQuestionSchema,
+  GroupedQuestionSchema,
+  ChildQuestionSchema,
+  McqsQuestionSchema,
+]);
 
 // ─── Tagged union (questionType added at call site after generation) ───────────
 

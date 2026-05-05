@@ -1,3 +1,4 @@
+import { relations } from 'drizzle-orm';
 import { pgTable, text, uuid, varchar } from 'drizzle-orm/pg-core';
 import { z } from 'zod';
 
@@ -13,7 +14,12 @@ export const QuestionTypeSchema = z.enum([
 
 export const QuestionDifficultySchema = z.enum(['High', 'Medium', 'Low']);
 
-export const QuestionStatusSchema = z.enum(['Approved', 'Draft', 'Archived']);
+export const QuestionStatusSchema = z.enum([
+  'Approved',
+  'Draft',
+  'Archived',
+  'Duplicate',
+]);
 
 export const Questions = pgTable('Questions', {
   ...baseEntityColumns,
@@ -25,7 +31,16 @@ export const Questions = pgTable('Questions', {
   Status: varchar('Status', { length: 20 })
     .notNull()
     .$type<(typeof QuestionStatusSchema.options)[number]>(),
+  DuplicateQuestionIds: text('DuplicateQuestionIds'),
 });
+
+export const QuestionsRelations = relations(Questions, ({ one, many }) => ({
+  ParentQuestion: one(Questions, {
+    fields: [Questions.ParentQuestionId],
+    references: [Questions.Id],
+  }),
+  ChildQuestions: many(Questions),
+}));
 
 export type TQuestionType = z.infer<typeof QuestionTypeSchema>;
 export type TQuestionDifficulty = z.infer<typeof QuestionDifficultySchema>;

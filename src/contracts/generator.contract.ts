@@ -1,9 +1,8 @@
 import { initContract } from '@ts-rest/core';
 
-import { GenerateOneSchema, QuestionSchema } from '@/common/types';
+import { GenerateOneSchema, GenerateOneResultSchema } from '@/common/types';
 import {
   BadRequestError,
-  ConflictError,
   UnprocessableError,
   InternalError,
 } from '@/common/types/error-responses.type';
@@ -18,9 +17,8 @@ export const generatorContract = c.router(
       path: '/one',
       body: GenerateOneSchema,
       responses: {
-        201: QuestionSchema,
+        201: GenerateOneResultSchema,
         400: BadRequestError,
-        409: ConflictError,
         422: UnprocessableError,
         500: InternalError,
       },

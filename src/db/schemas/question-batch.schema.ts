@@ -2,30 +2,30 @@ import { integer, jsonb, pgTable, text, varchar } from 'drizzle-orm/pg-core';
 import { z } from 'zod';
 
 import { baseEntityColumns } from './base.schema';
-import type { TBatchMetadata } from '@/common/types/batch.types';
+import type { TQuestionBatchMetadata } from '@/common/types/question-batch.types';
 
-export const BatchStatusSchema = z.enum([
+export const QuestionBatchStatusSchema = z.enum([
   'PENDING',
   'IN_PROGRESS',
   'COMPLETED',
   'FAILED',
 ]);
-export type TBatchStatus = z.infer<typeof BatchStatusSchema>;
-export const BatchStatus = BatchStatusSchema.enum;
+export type TQuestionBatchStatus = z.infer<typeof QuestionBatchStatusSchema>;
+export const QuestionBatchStatus = QuestionBatchStatusSchema.enum;
 
-export const Batches = pgTable('Batches', {
+export const QuestionBatches = pgTable('QuestionBatches', {
   ...baseEntityColumns,
-  Metadata: jsonb('Metadata').notNull().$type<TBatchMetadata>(),
+  MetaData: jsonb('MetaData').notNull().$type<TQuestionBatchMetadata>(),
   RequestedCount: integer('RequestedCount').notNull(),
   Status: varchar('Status', { length: 20 })
     .notNull()
-    .default(BatchStatus.PENDING)
-    .$type<TBatchStatus>(),
+    .default(QuestionBatchStatus.PENDING)
+    .$type<TQuestionBatchStatus>(),
   TotalPromptTokens: integer('TotalPromptTokens').notNull().default(0),
   TotalCompletionTokens: integer('TotalCompletionTokens').notNull().default(0),
   TotalTokens: integer('TotalTokens').notNull().default(0),
   EstimatedCostUsd: text('EstimatedCostUsd').notNull().default('0.000000'),
 });
 
-export type TBatchInsert = typeof Batches.$inferInsert;
-export type TBatchSelect = typeof Batches.$inferSelect;
+export type TQuestionBatchInsert = typeof QuestionBatches.$inferInsert;
+export type TQuestionBatchSelect = typeof QuestionBatches.$inferSelect;

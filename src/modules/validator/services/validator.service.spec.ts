@@ -18,13 +18,17 @@ jest.mock('@ai-sdk/azure', () => ({
 }));
 
 const mockConfig = {
-  get: jest.fn((key: string) => {
-    const values: Record<string, string> = {
-      AZURE_OPENAI_RESOURCE: 'my-resource',
-      AZURE_OPENAI_KEY: 'test-key',
-      AZURE_OPENAI_DEPLOYMENT_GPT4O: 'gpt-4o',
-    };
-    return values[key];
+  get: jest.fn().mockImplementation((key: string) => {
+    if (key === 'azure')
+      return {
+        openai: {
+          resource: 'my-resource',
+          key: 'test-key',
+          deployment: 'gpt-4o',
+          endpoint: 'https://my-resource.openai.azure.com',
+        },
+      };
+    return undefined;
   }),
 };
 

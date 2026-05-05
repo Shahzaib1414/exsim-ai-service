@@ -1,9 +1,10 @@
 import { OnWorkerEvent, WorkerHost } from '@nestjs/bullmq';
-import { Injectable, Type } from '@nestjs/common';
+import { Inject, Injectable, Type } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { Job } from 'bullmq';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 
+import { EmailService } from '@/modules/email';
 import { serializeError } from '@/utils';
 
 @Injectable()
@@ -12,6 +13,8 @@ export abstract class BaseWorker extends WorkerHost {
     @InjectPinoLogger('WorkerHostProcessor')
     protected readonly logger: PinoLogger,
     protected readonly moduleRef: ModuleRef,
+    @Inject(EmailService)
+    protected readonly emailService: EmailService,
   ) {
     super();
   }
