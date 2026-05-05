@@ -242,7 +242,7 @@ export class GeneratorService extends BaseService<typeof QuestionEmbeddings> {
 
       const chunksResult = await this.groundingService.retrieveRelevantChunks(
         queryEmbedResult.value.embedding,
-        { examType, subject, topic, grade, questionType },
+        { examType, subject, grade, questionType },
       );
       return chunksResult.isOk() ? chunksResult.value : [];
     } catch {

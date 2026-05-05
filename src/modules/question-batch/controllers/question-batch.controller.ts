@@ -1,6 +1,5 @@
 import { Controller, HttpStatus } from '@nestjs/common';
 import { TsRestHandler, tsRestHandler } from '@ts-rest/nest';
-import { SkipThrottle } from '@nestjs/throttler';
 
 import { questionBatchContract } from '@/contracts/question-batch.contract';
 import { QuestionBatchService } from '../services/question-batch.service';
@@ -26,7 +25,6 @@ export class QuestionBatchController {
     );
   }
 
-  @SkipThrottle()
   @TsRestHandler(questionBatchContract.listQuestionBatches)
   listQuestionBatches() {
     return tsRestHandler(
@@ -42,7 +40,6 @@ export class QuestionBatchController {
     );
   }
 
-  @SkipThrottle()
   @TsRestHandler(questionBatchContract.getQuestionBatch)
   getBatch() {
     return tsRestHandler(
@@ -57,7 +54,6 @@ export class QuestionBatchController {
     );
   }
 
-  @SkipThrottle()
   @TsRestHandler(questionBatchContract.getQuestionBatchItems)
   getQuestionBatchItems() {
     return tsRestHandler(

@@ -1,0 +1,62 @@
+<!-- Status badge -->
+<div style="text-align: center; margin-bottom: 28px;">
+  <div style="display: inline-block; background-color: #e8f5e9; border: 1.5px solid #a5d6a7; border-radius: 50px; padding: 8px 20px;">
+    <span style="color: #2e7d32; font-size: 13px; font-weight: 600; letter-spacing: 0.4px;">&#10003;&nbsp; Document Ingested Successfully</span>
+  </div>
+</div>
+
+<!-- Heading -->
+<h2 style="margin: 0 0 8px; color: #1a2d45; font-size: 22px; font-weight: 700; text-align: center;">
+  Document Ready for Grounding
+</h2>
+<p style="margin: 0 0 28px; color: #6b7a8d; font-size: 14px; text-align: center;">
+  Your document has been processed and its embeddings are stored for grounding.
+</p>
+
+<!-- Stats grid -->
+<table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom: 28px;">
+  <tr>
+    <td width="48%" style="background-color: #f0f9f0; border: 1px solid #c8e6c9; border-radius: 6px; padding: 16px 20px; text-align: center;">
+      <div style="color: #2e7d32; font-size: 28px; font-weight: 700;">{{chunksStored}}</div>
+      <div style="color: #4caf50; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px;">Pages Stored</div>
+    </td>
+    <td width="4%"></td>
+    <td width="48%" style="background-color: #fafafa; border: 1px solid #e0e0e0; border-radius: 6px; padding: 16px 20px; text-align: center;">
+      <div style="color: #1a2d45; font-size: 18px; font-weight: 700; font-family: monospace; word-break: break-all;">{{jobId}}</div>
+      <div style="color: #6b7a8d; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px;">Job ID</div>
+    </td>
+  </tr>
+</table>
+
+<!-- Document details -->
+<table width="100%" cellpadding="0" cellspacing="0" style="border: 1px solid #e1e8f0; border-radius: 6px; overflow: hidden; margin-bottom: 28px;">
+  <tr style="background-color: #f8fafc;">
+    <td colspan="2" style="padding: 12px 16px; border-bottom: 1px solid #e1e8f0;">
+      <span style="color: #4a5568; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px;">Document Details</span>
+    </td>
+  </tr>
+  <tr>
+    <td style="padding: 11px 16px; border-bottom: 1px solid #f0f4f8; color: #6b7a8d; font-size: 13px; width: 40%;">File Name</td>
+    <td style="padding: 11px 16px; border-bottom: 1px solid #f0f4f8; color: #1a2d45; font-size: 13px; font-weight: 500; font-family: monospace;">{{fileName}}</td>
+  </tr>
+  <tr>
+    <td style="padding: 11px 16px; border-bottom: 1px solid #f0f4f8; color: #6b7a8d; font-size: 13px;">Exam Type</td>
+    <td style="padding: 11px 16px; border-bottom: 1px solid #f0f4f8; color: #1a2d45; font-size: 13px; font-weight: 500;">{{examType}}</td>
+  </tr>
+  <tr>
+    <td style="padding: 11px 16px; border-bottom: 1px solid #f0f4f8; color: #6b7a8d; font-size: 13px;">Subject</td>
+    <td style="padding: 11px 16px; border-bottom: 1px solid #f0f4f8; color: #1a2d45; font-size: 13px; font-weight: 500;">{{subject}}</td>
+  </tr>
+  <tr>
+    <td style="padding: 11px 16px; border-bottom: 1px solid #f0f4f8; color: #6b7a8d; font-size: 13px;">Grade</td>
+    <td style="padding: 11px 16px; border-bottom: 1px solid #f0f4f8; color: #1a2d45; font-size: 13px; font-weight: 500;">{{grade}}</td>
+  </tr>
+  <tr>
+    <td style="padding: 11px 16px; color: #6b7a8d; font-size: 13px;">Question Type</td>
+    <td style="padding: 11px 16px; color: #1a2d45; font-size: 13px; font-weight: 500;">{{questionType}}</td>
+  </tr>
+</table>
+
+<p style="margin: 0; color: #9aa5b4; font-size: 12px; text-align: center;">
+  Completed at {{completedAt}}
+</p>

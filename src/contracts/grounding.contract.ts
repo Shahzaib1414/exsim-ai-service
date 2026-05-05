@@ -22,7 +22,7 @@ export const groundingContract = c.router(
       query: IngestDocumentQueryParamsSchema,
       body: c.type<{ file: File }>(),
       responses: {
-        201: IngestDocumentResponseSchema,
+        202: IngestDocumentResponseSchema,
         400: BadRequestError,
         422: UnprocessableError,
         500: InternalError,

@@ -49,11 +49,51 @@ export class QuestionBatchService extends BaseService {
     super(db);
   }
 
+  private async resolveActiveBatch(): Promise<Result<void, TErrorResult>> {
+    const [inProgress] = await this.db
+      .select({ id: QuestionBatches.Id })
+      .from(QuestionBatches)
+      .where(eq(QuestionBatches.Status, QuestionBatchStatus.IN_PROGRESS))
+      .limit(1);
+
+    if (!inProgress) return ok(undefined);
+
+    const { active, waiting, delayed } =
+      await this.questionBatchItemQueue.getJobCounts(
+        'active',
+        'waiting',
+        'delayed',
+      );
+
+    if (active + waiting + delayed > 0) {
+      return err({
+        status: HttpStatus.CONFLICT,
+        message: 'A question batch is already in progress',
+      });
+    }
+
+    // Queue is empty but DB still shows IN_PROGRESS — batch is stale. Heal it.
+    await this.db
+      .update(QuestionBatches)
+      .set({ Status: QuestionBatchStatus.FAILED })
+      .where(eq(QuestionBatches.Id, inProgress.id));
+
+    this.logger.warn({
+      message: 'Auto-healed stale IN_PROGRESS batch',
+      data: { batchId: inProgress.id },
+    });
+
+    return ok(undefined);
+  }
+
   async createQuestionBatch(
     dto: TCreateQuestionBatch,
     user: TAuthUserReq,
   ): Promise<Result<TQuestionBatchResponse, TErrorResult>> {
     try {
+      const activeCheck = await this.resolveActiveBatch();
+      if (activeCheck.isErr()) return err(activeCheck.error);
+
       // Batch row + all item rows are committed atomically.
       // Queue jobs are added only after the transaction succeeds so we never
       // enqueue jobs for a batch that was rolled back.

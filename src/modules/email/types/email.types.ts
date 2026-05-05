@@ -3,6 +3,8 @@ import { z } from 'zod';
 export enum EmailTemplate {
   QUESTION_BATCH_SUCCESS = 'question-batch-success',
   QUESTION_BATCH_FAILURE = 'question-batch-failure',
+  DOCUMENT_INGESTION_SUCCESS = 'document-ingestion-success',
+  DOCUMENT_INGESTION_FAILURE = 'document-ingestion-failure',
 }
 
 export const sendEmailOptionsSchema = z.object({

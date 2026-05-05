@@ -1,29 +1,34 @@
 import { Processor } from '@nestjs/bullmq';
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { Job } from 'bullmq';
 
 import { QUESTION_BATCH_ITEM_QUEUE } from '@/queues';
 import { TQuestionBatchItemJobData } from '@/common/types';
+import { AppInsightsMetricsService } from '@/common/services/app-insights-metrics.service';
+import { LangfuseService } from '@/common/services/langfuse.service';
+import { EmailTemplate, TSendEmailOptions } from '@/modules/email';
 import { GeneratorService } from '@/modules/generator/services/generator.service';
 import { QuestionBatchService } from '@/modules/question-batch/services/question-batch.service';
 import { QuestionService } from '@/modules/question/services/question.service';
-import { AppInsightsMetricsService } from '@/common/services';
-import { LangfuseService } from '@/common/services/langfuse.service';
-import { EmailTemplate } from '@/modules/email';
 import { serializeError } from '@/utils';
-import { BaseWorker } from './base.worker';
 import { QuestionBatchItemStatus, QuestionBatchStatus } from '@/db';
+import { BaseWorker } from './base.worker';
 
 @Processor(QUESTION_BATCH_ITEM_QUEUE, { concurrency: 5 })
 @Injectable()
 export class QuestionBatchWorker extends BaseWorker {
-  override async process(job: Job<TQuestionBatchItemJobData>): Promise<void> {
-    const generatorService = this.resolve(GeneratorService);
-    const questionBatchService = this.resolve(QuestionBatchService);
-    const metricsService = this.resolve(AppInsightsMetricsService);
-    const langfuseService = this.resolve(LangfuseService);
-    const questionService = this.resolve(QuestionService);
+  @Inject(QuestionBatchService)
+  private readonly questionBatchService: QuestionBatchService;
+  @Inject(GeneratorService)
+  private readonly generatorService: GeneratorService;
+  @Inject(QuestionService)
+  private readonly questionService: QuestionService;
+  @Inject(AppInsightsMetricsService)
+  private readonly metricsService: AppInsightsMetricsService;
+  @Inject(LangfuseService)
+  private readonly langfuseService: LangfuseService;
 
+  override async process(job: Job<TQuestionBatchItemJobData>): Promise<void> {
     const {
       questionBatchItemId,
       questionBatchId,
@@ -44,9 +49,8 @@ export class QuestionBatchWorker extends BaseWorker {
 
     try {
       const itemResult =
-        await questionBatchService.getItem(questionBatchItemId);
+        await this.questionBatchService.getItem(questionBatchItemId);
       if (itemResult.isErr()) {
-        // Item not found is a terminal condition — retrying will not help.
         this.logger.error({
           message: 'Batch item not found; skipping job',
           data: { questionBatchItemId, error: itemResult.error.message },
@@ -82,7 +86,7 @@ export class QuestionBatchWorker extends BaseWorker {
         },
       });
 
-      const trace = langfuseService.client.trace({
+      const trace = this.langfuseService.client.trace({
         id: questionBatchItemId,
         name: 'question-batch-item',
         metadata: {
@@ -97,9 +101,9 @@ export class QuestionBatchWorker extends BaseWorker {
       });
 
       const negativeExamples =
-        await questionService.getQuestionTexts(negativeExampleIds);
+        await this.questionService.getQuestionTexts(negativeExampleIds);
 
-      const result = await generatorService.generateOne({
+      const result = await this.generatorService.generateOne({
         examType,
         subject,
         topic,
@@ -113,78 +117,29 @@ export class QuestionBatchWorker extends BaseWorker {
       if (result.isOk()) {
         const value = result.value;
         trace.update({ output: { questionId: value.questionId } });
-        await questionBatchService.markItemCompleted(
+        await this.questionBatchService.markItemCompleted(
           questionBatchItemId,
           value.questionId,
           value.usage,
         );
-        metricsService.trackBatchItemSuccess(questionBatchId);
-        metricsService.trackLlmTokenUsage('generator', value.usage);
+        this.metricsService.trackBatchItemSuccess(questionBatchId);
+        this.metricsService.trackLlmTokenUsage('generator', value.usage);
       } else {
         trace.update({ output: { error: result.error.message } });
-        await questionBatchService.markItemFailed(
+        await this.questionBatchService.markItemFailed(
           questionBatchItemId,
           result.error.message,
         );
-        metricsService.trackBatchItemFailure(
+        this.metricsService.trackBatchItemFailure(
           questionBatchId,
           result.error.message,
         );
         throw new Error(result.error.message);
       }
 
-      await questionBatchService.updateQuestionBatchStatus(questionBatchId);
-
-      const batchResult =
-        await questionBatchService.getQuestionBatch(questionBatchId);
-      if (batchResult.isOk()) {
-        const batch = batchResult.value;
-        const isTerminal =
-          batch.status === QuestionBatchStatus.COMPLETED ||
-          batch.status === QuestionBatchStatus.FAILED;
-
-        if (isTerminal) {
-          const isSuccess = batch.status === QuestionBatchStatus.COMPLETED;
-          const completedAt = new Date().toUTCString();
-
-          const emailResult = await this.emailService.send({
-            to: job.data.user.email,
-            subject: isSuccess
-              ? `✓ Question Batch Completed — ${batch.metadata.subject} / ${batch.metadata.topic}`
-              : `✗ Question Batch Failed — ${batch.metadata.subject} / ${batch.metadata.topic}`,
-            template: isSuccess
-              ? EmailTemplate.QUESTION_BATCH_SUCCESS
-              : EmailTemplate.QUESTION_BATCH_FAILURE,
-            context: {
-              batchId: questionBatchId,
-              examType: batch.metadata.examType,
-              subject: batch.metadata.subject,
-              topic: batch.metadata.topic,
-              difficulty: batch.metadata.difficulty,
-              questionType: batch.metadata.questionType,
-              requestedCount: batch.requestedCount,
-              completedCount: batch.completedCount,
-              failedCount: batch.failedCount,
-              estimatedCostUsd: batch.estimatedCostUsd,
-              completedAt,
-              year: new Date().getFullYear(),
-            },
-          });
-
-          if (emailResult.isErr()) {
-            this.logger.warn({
-              message: 'Failed to send batch completion email',
-              data: {
-                questionBatchId,
-                template: isSuccess
-                  ? EmailTemplate.QUESTION_BATCH_SUCCESS
-                  : EmailTemplate.QUESTION_BATCH_FAILURE,
-                error: emailResult.error.message,
-              },
-            });
-          }
-        }
-      }
+      await this.questionBatchService.updateQuestionBatchStatus(
+        questionBatchId,
+      );
 
       void job.log(
         `Successfully processed question batch item ${questionBatchItemId}`,
@@ -201,5 +156,47 @@ export class QuestionBatchWorker extends BaseWorker {
       });
       throw error;
     }
+  }
+
+  protected override async onSuccess(
+    job: Job<TQuestionBatchItemJobData>,
+  ): Promise<TSendEmailOptions | null> {
+    const { questionBatchId } = job.data;
+
+    const batchResult =
+      await this.questionBatchService.getQuestionBatch(questionBatchId);
+    if (batchResult.isErr()) return null;
+
+    const batch = batchResult.value;
+    const isTerminal =
+      batch.status === QuestionBatchStatus.COMPLETED ||
+      batch.status === QuestionBatchStatus.FAILED;
+    if (!isTerminal) return null;
+
+    const isSuccess = batch.status === QuestionBatchStatus.COMPLETED;
+
+    return {
+      to: job.data.user.email,
+      subject: isSuccess
+        ? `✓ Question Batch Completed — ${batch.metadata.subject} / ${batch.metadata.topic}`
+        : `✗ Question Batch Failed — ${batch.metadata.subject} / ${batch.metadata.topic}`,
+      template: isSuccess
+        ? EmailTemplate.QUESTION_BATCH_SUCCESS
+        : EmailTemplate.QUESTION_BATCH_FAILURE,
+      context: {
+        batchId: questionBatchId,
+        examType: batch.metadata.examType,
+        subject: batch.metadata.subject,
+        topic: batch.metadata.topic,
+        difficulty: batch.metadata.difficulty,
+        questionType: batch.metadata.questionType,
+        requestedCount: batch.requestedCount,
+        completedCount: batch.completedCount,
+        failedCount: batch.failedCount,
+        estimatedCostUsd: batch.estimatedCostUsd,
+        completedAt: new Date().toUTCString(),
+        year: new Date().getFullYear(),
+      },
+    };
   }
 }

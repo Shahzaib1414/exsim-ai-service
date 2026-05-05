@@ -12,6 +12,8 @@ import { groundingContract } from '@/contracts';
 import { GroundingService } from '../services/grounding.service';
 import { fileExtensionValidator } from '@/common/validators/file-extension.validator';
 import { fileSizeValidator } from '@/common/validators/file-size.validator';
+import { AuthUserReq, type TAuthUserReq } from '@/common';
+import { toErrorResponse } from '@/utils';
 
 type IngestDocument = ServerInferRequest<
   typeof groundingContract.ingestDocument
@@ -26,6 +28,7 @@ export class GroundingController {
   ingestDocument(
     @UploadedFile(fileExtensionValidator(), fileSizeValidator())
     file: Express.Multer.File,
+    @AuthUserReq() user: TAuthUserReq,
   ) {
     return tsRestHandler(
       groundingContract.ingestDocument,
@@ -41,33 +44,24 @@ export class GroundingController {
           };
         }
 
-        const result = await this.groundingService.ingestDocument(
+        const result = await this.groundingService.enqueueIngestionJob(
           file.buffer,
           file.originalname,
           {
             examType: query.examType,
             subject: query.subject,
-            topic: query.topic,
             grade: query.grade,
             questionType: query.questionType,
           },
+          user,
         );
 
-        if (result.isErr()) {
-          return {
-            status: result.error.status as any,
-            body: {
-              status: result.error.status,
-              message: HttpStatus[result.error.status],
-              errors: [result.error.message],
-            },
-          };
-        }
+        if (result.isErr()) return toErrorResponse(result.error);
 
         return {
-          status: HttpStatus.CREATED,
+          status: HttpStatus.ACCEPTED,
           body: {
-            chunksStored: result.value.chunksStored,
+            jobId: result.value.jobId,
             fileName: file.originalname,
           },
         };

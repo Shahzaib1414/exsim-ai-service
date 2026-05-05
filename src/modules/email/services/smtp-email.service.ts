@@ -112,6 +112,14 @@ export class SmtpEmailService extends EmailService implements OnModuleInit {
     const entries: [EmailTemplate, string][] = [
       [EmailTemplate.QUESTION_BATCH_SUCCESS, 'question-batch-success.hbs'],
       [EmailTemplate.QUESTION_BATCH_FAILURE, 'question-batch-failure.hbs'],
+      [
+        EmailTemplate.DOCUMENT_INGESTION_SUCCESS,
+        'document-ingestion-success.hbs',
+      ],
+      [
+        EmailTemplate.DOCUMENT_INGESTION_FAILURE,
+        'document-ingestion-failure.hbs',
+      ],
     ];
 
     for (const [key, filename] of entries) {

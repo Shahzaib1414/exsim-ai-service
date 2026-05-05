@@ -1,4 +1,5 @@
 import { HttpStatus, Inject, Injectable } from '@nestjs/common';
+import { Queue } from 'bullmq';
 import { sql } from 'drizzle-orm';
 import { err, ok, Result } from 'neverthrow';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
@@ -6,10 +7,20 @@ import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { DRIZZLE_CLIENT } from '@/database/database.module';
 import { BaseService } from '@/common/services';
 import type { DrizzleClient } from '@/db';
-import { TErrorResult, TGroundingMetadata } from '@/common/types';
+import {
+  TErrorResult,
+  TGroundingMetadata,
+  TDocumentIngestionJobData,
+  TAuthUserReq,
+} from '@/common/types';
 import { GroundingEmbeddings } from '@/db/schemas/grounding-embedding.schema';
 import { EmbeddingService } from '@/modules/embedding/services/embedding.service';
 import { serializeError, buildSafeVectorLiteral } from '@/utils';
+import {
+  PROCESS_DOCUMENT_INGESTION_JOB,
+  InjectDocumentIngestionQueue,
+  createMediumFrequencyJobOptions,
+} from '@/queues';
 import { PdfChunkerService } from './pdf-chunker.service';
 
 @Injectable()
@@ -20,8 +31,41 @@ export class GroundingService extends BaseService {
     private readonly logger: PinoLogger,
     private readonly pdfChunker: PdfChunkerService,
     private readonly embeddingService: EmbeddingService,
+    @InjectDocumentIngestionQueue()
+    private readonly documentIngestionQueue: Queue,
   ) {
     super(db);
+  }
+
+  async enqueueIngestionJob(
+    buffer: Buffer,
+    fileName: string,
+    metadata: TGroundingMetadata,
+    user: TAuthUserReq,
+  ): Promise<Result<{ jobId: string }, TErrorResult>> {
+    try {
+      const job = await this.documentIngestionQueue.add(
+        PROCESS_DOCUMENT_INGESTION_JOB,
+        {
+          user,
+          fileBase64: buffer.toString('base64'),
+          fileName,
+          metadata,
+        } satisfies TDocumentIngestionJobData,
+        createMediumFrequencyJobOptions(),
+      );
+
+      return ok({ jobId: job.id! });
+    } catch (error) {
+      this.logger.error({
+        message: 'Failed to enqueue document ingestion job',
+        data: { fileName, error: serializeError(error) },
+      });
+      return err({
+        status: HttpStatus.INTERNAL_SERVER_ERROR,
+        message: 'Failed to enqueue document ingestion job',
+      });
+    }
   }
 
   async ingestDocument(
@@ -81,13 +125,10 @@ export class GroundingService extends BaseService {
 
   async retrieveRelevantChunks(
     queryEmbedding: number[],
-    metadata: Pick<
-      TGroundingMetadata,
-      'examType' | 'subject' | 'topic' | 'grade' | 'questionType'
-    >,
+    metadata: TGroundingMetadata,
     topK = 5,
   ): Promise<Result<string[], TErrorResult>> {
-    const { examType, subject, topic, grade, questionType } = metadata;
+    const { examType, subject, grade } = metadata;
 
     const vectorResult = buildSafeVectorLiteral(queryEmbedding);
     if (vectorResult.isErr()) {
@@ -104,9 +145,7 @@ export class GroundingService extends BaseService {
         FROM "GroundingEmbeddings"
         WHERE "Metadata"->>'examType' = ${examType}
           AND "Metadata"->>'subject' = ${subject}
-          AND "Metadata"->>'topic' = ${topic}
           AND ("Metadata"->>'grade')::int = ${grade}
-          AND "Metadata"->>'questionType' = ${questionType}
         ORDER BY "Embedding" <=> ${vectorLiteral}::vector
         LIMIT ${topK}
       `);
@@ -115,7 +154,7 @@ export class GroundingService extends BaseService {
     } catch (error) {
       this.logger.error({
         message: 'Failed to retrieve grounding chunks',
-        data: { subject, topic, error: serializeError(error) },
+        data: { subject, error: serializeError(error) },
       });
       return err({
         status: HttpStatus.INTERNAL_SERVER_ERROR,

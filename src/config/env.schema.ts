@@ -54,6 +54,11 @@ const swaggerEnvSchema = z.object({
   SWAGGER_ENABLED: z.string(),
 });
 
+const queueDashboardEnvSchema = z.object({
+  QUEUE_DASHBOARD_USERNAME: z.string().min(1).default('admin'),
+  QUEUE_DASHBOARD_PASSWORD: z.string().min(1).default('admin'),
+});
+
 export const envSchema = appEnvSchema
   .merge(databaseEnvSchema)
   .merge(redisEnvSchema)
@@ -62,7 +67,8 @@ export const envSchema = appEnvSchema
   .merge(observabilityEnvSchema)
   .merge(dotnetEnvSchema)
   .merge(smtpEnvSchema)
-  .merge(swaggerEnvSchema);
+  .merge(swaggerEnvSchema)
+  .merge(queueDashboardEnvSchema);
 
 export type TEnv = z.infer<typeof envSchema>;
 

@@ -2,8 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { LoggerModule } from 'nestjs-pino';
 import { BullModule } from '@nestjs/bullmq';
-import { BullBoardModule } from '@bull-board/nestjs';
-import { ExpressAdapter } from '@bull-board/express';
+import { QueueDashboardModule } from './queues';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 import { randomUUID } from 'crypto';
@@ -35,6 +34,7 @@ import { ObservabilityModule } from './common/modules';
 import { QuestionBatchModule } from './modules/question-batch';
 import { GroundingModule } from './modules/grounding';
 import { AnalyticsModule } from './modules/analytics';
+import { BaseWorkerModule } from './workers/base.worker.module';
 
 @Module({
   imports: [
@@ -75,12 +75,7 @@ import { AnalyticsModule } from './modules/analytics';
         connection: { url: config.get('redis', { infer: true }).url },
       }),
     }),
-    BullBoardModule.forRootAsync({
-      useFactory: () => ({
-        route: '/admin/queues',
-        adapter: ExpressAdapter,
-      }),
-    }),
+    QueueDashboardModule,
     ThrottlerModule.forRoot({
       throttlers: [{ ttl: 60_000, limit: 10 }],
     }),
@@ -88,6 +83,7 @@ import { AnalyticsModule } from './modules/analytics';
       global: true,
       middleware: { mount: true },
     }),
+    BaseWorkerModule,
     DatabaseModule,
     EmbeddingModule,
     DeduplicatorModule,
