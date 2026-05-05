@@ -77,7 +77,7 @@ export class UserHeaderGuard implements CanActivate {
     };
 
     this.cls.set('user', user);
-    request['user'] = user;
+    (request as Request & { user: TAuthUserReq }).user = user;
 
     return true;
   }

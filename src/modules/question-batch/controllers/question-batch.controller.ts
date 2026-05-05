@@ -5,6 +5,7 @@ import { SkipThrottle } from '@nestjs/throttler';
 import { questionBatchContract } from '@/contracts/question-batch.contract';
 import { QuestionBatchService } from '../services/question-batch.service';
 import { AuthUserReq, type TAuthUserReq } from '@/common';
+import { toErrorResponse } from '@/utils';
 
 @Controller()
 export class QuestionBatchController {
@@ -19,16 +20,7 @@ export class QuestionBatchController {
           body,
           user,
         );
-        if (result.isErr()) {
-          return {
-            status: result.error.status as any,
-            body: {
-              status: result.error.status,
-              message: HttpStatus[result.error.status],
-              errors: [result.error.message],
-            },
-          };
-        }
+        if (result.isErr()) return toErrorResponse(result.error);
         return { status: HttpStatus.CREATED, body: result.value };
       },
     );
@@ -39,18 +31,12 @@ export class QuestionBatchController {
   listQuestionBatches() {
     return tsRestHandler(
       questionBatchContract.listQuestionBatches,
-      async () => {
-        const result = await this.questionBatchService.listQuestionBatches();
-        if (result.isErr()) {
-          return {
-            status: result.error.status as any,
-            body: {
-              status: result.error.status,
-              message: HttpStatus[result.error.status],
-              errors: [result.error.message],
-            },
-          };
-        }
+      async ({ query }) => {
+        const result = await this.questionBatchService.listQuestionBatches(
+          query.page,
+          query.limit,
+        );
+        if (result.isErr()) return toErrorResponse(result.error);
         return { status: HttpStatus.OK, body: result.value };
       },
     );
@@ -65,16 +51,7 @@ export class QuestionBatchController {
         const result = await this.questionBatchService.getQuestionBatch(
           params.id,
         );
-        if (result.isErr()) {
-          return {
-            status: result.error.status as any,
-            body: {
-              status: result.error.status,
-              message: HttpStatus[result.error.status],
-              errors: [result.error.message],
-            },
-          };
-        }
+        if (result.isErr()) return toErrorResponse(result.error);
         return { status: HttpStatus.OK, body: result.value };
       },
     );
@@ -88,18 +65,9 @@ export class QuestionBatchController {
       async ({ params, query }) => {
         const result = await this.questionBatchService.getQuestionBatchItems(
           params.id,
-          query.status as string | undefined,
+          query.status,
         );
-        if (result.isErr()) {
-          return {
-            status: result.error.status as any,
-            body: {
-              status: result.error.status,
-              message: HttpStatus[result.error.status],
-              errors: [result.error.message],
-            },
-          };
-        }
+        if (result.isErr()) return toErrorResponse(result.error);
         return { status: HttpStatus.OK, body: result.value };
       },
     );
@@ -114,16 +82,7 @@ export class QuestionBatchController {
           params.itemId,
           user,
         );
-        if (result.isErr()) {
-          return {
-            status: result.error.status as any,
-            body: {
-              status: result.error.status,
-              message: HttpStatus[result.error.status],
-              errors: [result.error.message],
-            },
-          };
-        }
+        if (result.isErr()) return toErrorResponse(result.error);
         return { status: HttpStatus.OK, body: result.value };
       },
     );
@@ -137,16 +96,7 @@ export class QuestionBatchController {
         const result = await this.questionBatchService.discardDuplicateItem(
           params.itemId,
         );
-        if (result.isErr()) {
-          return {
-            status: result.error.status as any,
-            body: {
-              status: result.error.status,
-              message: HttpStatus[result.error.status],
-              errors: [result.error.message],
-            },
-          };
-        }
+        if (result.isErr()) return toErrorResponse(result.error);
         return { status: HttpStatus.NO_CONTENT, body: {} };
       },
     );

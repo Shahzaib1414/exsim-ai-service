@@ -13,7 +13,6 @@ Perform comprehensive code quality review: $ARGUMENTS
 - Git status: !`git status --porcelain`
 - Recent changes: !`git diff --stat HEAD~5`
 - Repository info: !`git log --oneline -5`
-- Build status: !`npm run build --dry-run 2>/dev/null || echo "No build script"`
 
 ## Task
 

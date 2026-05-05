@@ -46,13 +46,22 @@ export class QuestionBatchWorker extends BaseWorker {
       const itemResult =
         await questionBatchService.getItem(questionBatchItemId);
       if (itemResult.isErr()) {
-        throw new Error(itemResult.error.message);
+        // Item not found is a terminal condition — retrying will not help.
+        this.logger.error({
+          message: 'Batch item not found; skipping job',
+          data: { questionBatchItemId, error: itemResult.error.message },
+        });
+        return;
       }
 
-      if (itemResult.value.Status === QuestionBatchItemStatus.COMPLETED) {
+      const { Status: itemStatus } = itemResult.value;
+      if (
+        itemStatus === QuestionBatchItemStatus.COMPLETED ||
+        itemStatus === QuestionBatchItemStatus.FAILED
+      ) {
         this.logger.info({
-          message: 'Skipping already-generated item',
-          data: { questionBatchItemId },
+          message: 'Skipping already-processed item',
+          data: { questionBatchItemId, status: itemStatus },
         });
         return;
       }
@@ -138,8 +147,8 @@ export class QuestionBatchWorker extends BaseWorker {
           const isSuccess = batch.status === QuestionBatchStatus.COMPLETED;
           const completedAt = new Date().toUTCString();
 
-          void this.emailService.send({
-            to: job.data.user.email, // LOGGED-IN user email
+          const emailResult = await this.emailService.send({
+            to: job.data.user.email,
             subject: isSuccess
               ? `✓ Question Batch Completed — ${batch.metadata.subject} / ${batch.metadata.topic}`
               : `✗ Question Batch Failed — ${batch.metadata.subject} / ${batch.metadata.topic}`,
@@ -161,6 +170,19 @@ export class QuestionBatchWorker extends BaseWorker {
               year: new Date().getFullYear(),
             },
           });
+
+          if (emailResult.isErr()) {
+            this.logger.warn({
+              message: 'Failed to send batch completion email',
+              data: {
+                questionBatchId,
+                template: isSuccess
+                  ? EmailTemplate.QUESTION_BATCH_SUCCESS
+                  : EmailTemplate.QUESTION_BATCH_FAILURE,
+                error: emailResult.error.message,
+              },
+            });
+          }
         }
       }
 

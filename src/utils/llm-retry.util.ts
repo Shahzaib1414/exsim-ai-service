@@ -4,6 +4,8 @@ export interface LlmRetryOptions {
   maxAttempts?: number;
   baseDelayMs?: number;
   onRetry?: (attempt: number) => void;
+  /** Reuse a caller-supplied idempotency key across all retry attempts. */
+  idempotencyKey?: string;
 }
 
 function is429(error: unknown): boolean {
@@ -31,7 +33,7 @@ export async function withLlmRetry<T>(
 ): Promise<T> {
   const maxAttempts = options?.maxAttempts ?? 4;
   const baseDelayMs = options?.baseDelayMs ?? 1000;
-  const idempotencyKey = randomUUID();
+  const idempotencyKey = options?.idempotencyKey ?? randomUUID();
 
   let lastError: unknown;
 

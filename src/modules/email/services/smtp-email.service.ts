@@ -70,8 +70,7 @@ export class SmtpEmailService extends EmailService implements OnModuleInit {
       this.logger.info({
         message: 'Email sent',
         data: {
-          to: options.to,
-          subject: options.subject,
+          recipientCount: Array.isArray(options.to) ? options.to.length : 1,
           template: options.template,
         },
       });
@@ -80,7 +79,7 @@ export class SmtpEmailService extends EmailService implements OnModuleInit {
     } catch (error) {
       this.logger.error({
         message: 'Failed to send email',
-        data: { to: options.to, subject: options.subject },
+        data: { template: options.template },
         error: serializeError(error),
       });
       return err({

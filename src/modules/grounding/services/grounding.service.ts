@@ -9,7 +9,7 @@ import type { DrizzleClient } from '@/db';
 import { TErrorResult, TGroundingMetadata } from '@/common/types';
 import { GroundingEmbeddings } from '@/db/schemas/grounding-embedding.schema';
 import { EmbeddingService } from '@/modules/embedding/services/embedding.service';
-import { serializeError } from '@/utils';
+import { serializeError, buildSafeVectorLiteral } from '@/utils';
 import { PdfChunkerService } from './pdf-chunker.service';
 
 @Injectable()
@@ -88,9 +88,17 @@ export class GroundingService extends BaseService {
     topK = 5,
   ): Promise<Result<string[], TErrorResult>> {
     const { examType, subject, topic, grade, questionType } = metadata;
-    try {
-      const vectorLiteral = `[${queryEmbedding.join(',')}]`;
 
+    const vectorResult = buildSafeVectorLiteral(queryEmbedding);
+    if (vectorResult.isErr()) {
+      return err({
+        status: HttpStatus.UNPROCESSABLE_ENTITY,
+        message: vectorResult.error,
+      });
+    }
+    const vectorLiteral = vectorResult.value;
+
+    try {
       const result = await this.db.execute(sql`
         SELECT "ChunkText"
         FROM "GroundingEmbeddings"

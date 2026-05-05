@@ -11,7 +11,7 @@ import {
   DEDUP_SIMILARITY_THRESHOLD,
   TDuplicateCheckResult,
 } from '@/common/types';
-import { serializeError } from '@/utils';
+import { serializeError, buildSafeVectorLiteral } from '@/utils';
 
 @Injectable()
 export class DeduplicatorService extends BaseService {
@@ -27,9 +27,16 @@ export class DeduplicatorService extends BaseService {
     embedding: number[],
     threshold = DEDUP_SIMILARITY_THRESHOLD,
   ): Promise<Result<TDuplicateCheckResult, TErrorResult>> {
-    try {
-      const vectorLiteral = `[${embedding.join(',')}]`;
+    const vectorResult = buildSafeVectorLiteral(embedding);
+    if (vectorResult.isErr()) {
+      return err({
+        status: HttpStatus.UNPROCESSABLE_ENTITY,
+        message: vectorResult.error,
+      });
+    }
+    const vectorLiteral = vectorResult.value;
 
+    try {
       const rows = await this.db.execute(sql`
         SELECT "QuestionId"
         FROM "QuestionEmbeddings"

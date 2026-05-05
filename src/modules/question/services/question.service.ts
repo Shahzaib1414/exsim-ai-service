@@ -38,8 +38,6 @@ import {
 
 @Injectable()
 export class QuestionService extends BaseService {
-  private readonly baseUrl: string;
-
   constructor(
     @Inject(DRIZZLE_CLIENT) db: DrizzleClient,
     @InjectPinoLogger(QuestionService.name)
@@ -48,7 +46,6 @@ export class QuestionService extends BaseService {
     private readonly config: ConfigService<Config, true>,
   ) {
     super(db);
-    this.baseUrl = this.config.get('dotnet', { infer: true }).apiUrl;
   }
 
   async saveQuestion(
@@ -150,10 +147,11 @@ export class QuestionService extends BaseService {
     tx: DrizzleTransaction,
     subject: string,
   ): Promise<string> {
+    const normalised = subject.trim().toLowerCase();
     const [existing] = await tx
       .select({ Id: Categories.Id })
       .from(Categories)
-      .where(sql`LOWER(${Categories.Name}) = ${subject.toLowerCase()}`)
+      .where(sql`LOWER(TRIM(${Categories.Name})) = ${normalised}`)
       .limit(1);
     if (existing) return existing.Id;
     const [created] = await tx
@@ -168,10 +166,11 @@ export class QuestionService extends BaseService {
     topic: string,
     categoryId: string,
   ): Promise<string> {
+    const normalised = topic.trim().toLowerCase();
     const [existing] = await tx
       .select({ Id: Topics.Id })
       .from(Topics)
-      .where(sql`LOWER(${Topics.Name}) = ${topic.toLowerCase()}`)
+      .where(sql`LOWER(TRIM(${Topics.Name})) = ${normalised}`)
       .limit(1);
     if (existing) return existing.Id;
     const [created] = await tx

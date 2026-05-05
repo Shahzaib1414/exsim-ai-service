@@ -35,7 +35,7 @@ const langfuseEnvSchema = z.object({
 });
 
 const observabilityEnvSchema = z.object({
-  APPLICATIONINSIGHTS_CONNECTION_STRING: z.string().min(1),
+  APPLICATIONINSIGHTS_CONNECTION_STRING: z.string().min(1).optional(),
 });
 
 const dotnetEnvSchema = z.object({
