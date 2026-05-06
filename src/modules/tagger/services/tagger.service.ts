@@ -15,8 +15,7 @@ import {
   TExtraTag,
   TLlmUsage,
 } from '@/common/types';
-import { QuestionType } from '@/db/schemas/question.schema';
-import { serializeError, withLlmRetry } from '@/utils';
+import { serializeError, withLlmRetry, buildQuestionBody } from '@/utils';
 import { AppInsightsMetricsService } from '@/common/services';
 
 @Injectable()
@@ -47,7 +46,7 @@ export class TaggerService {
   ): Promise<
     Result<{ extraTags: TExtraTag[]; usage: TLlmUsage }, TErrorResult>
   > {
-    const questionBody = this.buildQuestionBody(question);
+    const questionBody = buildQuestionBody(question);
     const prompt = `You are an educational metadata specialist. Analyze the following exam question and assign metadata tags.
 
 Subject: ${subject}
@@ -114,28 +113,5 @@ Determine:
         message: 'failed to tag question',
       });
     }
-  }
-
-  private buildQuestionBody(question: TQuestion): string {
-    if (question.questionType === QuestionType.Mcqs) {
-      return `Question stem: "${question.stem}"
-Options:
-${question.options.map((o, i) => `  ${i}. ${o}`).join('\n')}
-Correct answer index: ${question.correctAnswerIndex}
-Explanation: "${question.explanation}"`;
-    }
-    if (question.questionType === QuestionType.Grouped) {
-      const childLines = question.childQuestions
-        .map(
-          (c, idx) =>
-            `  Child ${idx + 1}: "${c.stem}"\n  Options: ${c.options.map((o, i) => `${i}. ${o}`).join(', ')}\n  Correct index: ${c.correctAnswerIndex}`,
-        )
-        .join('\n');
-      return `Question stem: "${question.stem}"
-Child questions:
-${childLines}`;
-    }
-    return `Question stem: "${question.stem}"
-Solution: "${question.solution}"`;
   }
 }

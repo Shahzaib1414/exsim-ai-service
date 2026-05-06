@@ -5,5 +5,5 @@ export interface IDatabaseConfig {
 }
 
 export const databaseConfig = registerAs<IDatabaseConfig>('database', () => ({
-  url: process.env.DATABASE_URL!,
+  url: process.env.DATABASE_URL ?? '',
 }));

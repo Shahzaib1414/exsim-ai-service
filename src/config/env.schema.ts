@@ -55,8 +55,8 @@ const swaggerEnvSchema = z.object({
 });
 
 const queueDashboardEnvSchema = z.object({
-  QUEUE_DASHBOARD_USERNAME: z.string().min(1).default('admin'),
-  QUEUE_DASHBOARD_PASSWORD: z.string().min(1).default('admin'),
+  QUEUE_DASHBOARD_USERNAME: z.string().min(1),
+  QUEUE_DASHBOARD_PASSWORD: z.string().min(1),
 });
 
 export const envSchema = appEnvSchema

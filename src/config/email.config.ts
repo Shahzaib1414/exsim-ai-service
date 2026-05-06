@@ -9,9 +9,9 @@ export interface IEmailConfig {
 }
 
 export const emailConfig = registerAs<IEmailConfig>('email', () => ({
-  host: process.env.SMTP_HOST!,
+  host: process.env.SMTP_HOST ?? '',
   port: Number(process.env.SMTP_PORT ?? 587),
-  from: process.env.SMTP_FROM!,
-  username: process.env.SMTP_USERNAME!,
-  password: process.env.SMTP_PASSWORD!,
+  from: process.env.SMTP_FROM ?? '',
+  username: process.env.SMTP_USERNAME ?? '',
+  password: process.env.SMTP_PASSWORD ?? '',
 }));

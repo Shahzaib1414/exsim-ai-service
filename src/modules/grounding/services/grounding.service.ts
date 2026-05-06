@@ -85,19 +85,21 @@ export class GroundingService extends BaseService {
       });
     }
 
-    // Step 2: Embed each chunk and collect rows for bulk insert
+    // Step 2: Embed all chunks in parallel, then collect rows for bulk insert
+    const embedResults = await Promise.all(
+      chunks.map((chunk) => this.embeddingService.embedText(chunk.text)),
+    );
+
     const rows: (typeof GroundingEmbeddings.$inferInsert)[] = [];
-
-    for (const chunk of chunks) {
-      const embedResult = await this.embeddingService.embedText(chunk.text);
-      if (embedResult.isErr()) return err(embedResult.error);
-
+    for (let i = 0; i < chunks.length; i++) {
+      const result = embedResults[i]!;
+      if (result.isErr()) return err(result.error);
       rows.push({
-        ChunkText: chunk.text,
-        Embedding: embedResult.value.embedding,
+        ChunkText: chunks[i]!.text,
+        Embedding: result.value.embedding,
         ModelName: this.embeddingService.modelName,
-        SourceDoc: chunk.sourceDoc,
-        PageNumber: chunk.pageNumber,
+        SourceDoc: chunks[i]!.sourceDoc,
+        PageNumber: chunks[i]!.pageNumber,
         Metadata: metadata,
       });
     }

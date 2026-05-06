@@ -16,7 +16,7 @@ import {
   ZERO_LLM_USAGE,
 } from '@/common/types';
 import { QuestionType } from '@/db/schemas/question.schema';
-import { serializeError, withLlmRetry } from '@/utils';
+import { serializeError, withLlmRetry, buildQuestionBody } from '@/utils';
 import { AppInsightsMetricsService } from '@/common/services';
 
 @Injectable()
@@ -51,7 +51,7 @@ export class ValidatorService {
     // Stage 2: LLM quality check
     const prompt = `You are an exam question quality reviewer. Evaluate the following exam question and determine if it meets quality standards.
 
-${this.buildQuestionBody(question)}
+${buildQuestionBody(question)}
 
 Assess the following criteria:
 - Is the stem clear and unambiguous?
@@ -108,29 +108,6 @@ Return isValid=true only if all criteria pass. List any specific issues found.`;
         message: 'failed to validate question',
       });
     }
-  }
-
-  private buildQuestionBody(question: TQuestion): string {
-    if (question.questionType === QuestionType.Mcqs) {
-      return `Question stem: "${question.stem}"
-Options:
-${question.options.map((o, i) => `  ${i}. ${o}`).join('\n')}
-Correct answer index: ${question.correctAnswerIndex}
-Explanation: "${question.explanation}"`;
-    }
-    if (question.questionType === QuestionType.Grouped) {
-      const childLines = question.childQuestions
-        .map(
-          (c, idx) =>
-            `  Child ${idx + 1}: "${c.stem}"\n  Options: ${c.options.map((o, i) => `${i}. ${o}`).join(', ')}\n  Correct index: ${c.correctAnswerIndex}`,
-        )
-        .join('\n');
-      return `Question stem: "${question.stem}"
-Child questions:
-${childLines}`;
-    }
-    return `Question stem: "${question.stem}"
-Solution: "${question.solution}"`;
   }
 
   private runRuleChecks(question: TQuestion): string[] {

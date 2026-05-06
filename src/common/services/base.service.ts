@@ -322,7 +322,9 @@ export abstract class BaseService<TTable extends TableWithId = TableWithId> {
     table: T,
     where?: SQL,
   ): Promise<number> {
-    const base = this.db.select({ total: count() }).from(table);
+    const base = this.db
+      .select({ total: count() })
+      .from(table as PgTable<TableConfig>);
     const [{ total }] = where ? await base.where(where) : await base;
     return total;
   }

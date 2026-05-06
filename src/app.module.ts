@@ -9,8 +9,6 @@ import { randomUUID } from 'crypto';
 import { ClsModule } from 'nestjs-cls';
 
 import { UserHeaderGuard } from '@/common/guards';
-import { AppController } from './app.controller';
-import { AppService } from './app.service';
 import {
   validate,
   appConfig,
@@ -96,9 +94,7 @@ import { BaseWorkerModule } from './workers/base.worker.module';
     AnalyticsModule,
     ObservabilityModule,
   ],
-  controllers: [AppController],
   providers: [
-    AppService,
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: UserHeaderGuard },
   ],

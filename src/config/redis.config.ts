@@ -5,5 +5,5 @@ export interface IRedisConfig {
 }
 
 export const redisConfig = registerAs<IRedisConfig>('redis', () => ({
-  url: process.env.REDIS_URL!,
+  url: process.env.REDIS_URL ?? '',
 }));

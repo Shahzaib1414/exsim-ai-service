@@ -5,5 +5,5 @@ export interface IDotnetConfig {
 }
 
 export const dotnetConfig = registerAs<IDotnetConfig>('dotnet', () => ({
-  apiUrl: process.env.DOTNET_API_URL!,
+  apiUrl: process.env.DOTNET_API_URL ?? '',
 }));

@@ -31,8 +31,9 @@ async function bootstrap() {
   app.useGlobalInterceptors(new HeaderErrorInterceptor());
   app.useGlobalInterceptors(new ValidationErrorInterceptor());
 
-  const port = 3000;
-  const config = app.get<ConfigService>(ConfigService)['internalConfig'];
+  const configService = app.get<ConfigService>(ConfigService);
+  const port = configService.get('app', { infer: true }).port;
+  const config = configService['internalConfig'];
 
   if (config.swagger.enabled) {
     setupSwagger(app, `http://localhost:${port}`);

@@ -4,6 +4,7 @@ import { TsRestHandler, tsRestHandler } from '@ts-rest/nest';
 import { generatorContract } from '@/contracts';
 import { GeneratorService } from '../services/generator.service';
 import { ServerInferRequest } from '@ts-rest/core';
+import { toErrorResponse } from '@/utils';
 
 type GenerateOne = ServerInferRequest<typeof generatorContract.generateOne>;
 
@@ -17,16 +18,7 @@ export class GeneratorController {
       generatorContract.generateOne,
       async ({ body }: GenerateOne) => {
         const result = await this.generatorService.generateOne(body);
-        if (result.isErr()) {
-          return {
-            status: result.error.status as any,
-            body: {
-              status: result.error.status,
-              message: HttpStatus[result.error.status],
-              errors: [result.error.message],
-            },
-          };
-        }
+        if (result.isErr()) return toErrorResponse(result.error);
         return { status: HttpStatus.CREATED, body: result.value };
       },
     );

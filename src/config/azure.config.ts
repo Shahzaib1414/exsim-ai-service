@@ -14,15 +14,15 @@ export interface IAzureConfig {
 
 export const azureConfig = registerAs<IAzureConfig>('azure', () => ({
   openai: {
-    endpoint: process.env.AZURE_OPENAI_ENDPOINT!,
-    key: process.env.AZURE_OPENAI_KEY!,
-    deployment: process.env.AZURE_OPENAI_DEPLOYMENT_GPT4O!,
-    resource: process.env.AZURE_OPENAI_RESOURCE!,
+    endpoint: process.env.AZURE_OPENAI_ENDPOINT ?? '',
+    key: process.env.AZURE_OPENAI_KEY ?? '',
+    deployment: process.env.AZURE_OPENAI_DEPLOYMENT_GPT4O ?? '',
+    resource: process.env.AZURE_OPENAI_RESOURCE ?? '',
   },
   embedding: {
-    endpoint: process.env.AZURE_OPENAI_EMBEDDING_ENDPOINT!,
-    key: process.env.AZURE_OPENAI_EMBEDDING_KEY!,
-    deployment: process.env.AZURE_OPENAI_DEPLOYMENT_EMBEDDING!,
-    resource: process.env.AZURE_OPENAI_EMBEDDING_RESOURCE!,
+    endpoint: process.env.AZURE_OPENAI_EMBEDDING_ENDPOINT ?? '',
+    key: process.env.AZURE_OPENAI_EMBEDDING_KEY ?? '',
+    deployment: process.env.AZURE_OPENAI_DEPLOYMENT_EMBEDDING ?? '',
+    resource: process.env.AZURE_OPENAI_EMBEDDING_RESOURCE ?? '',
   },
 }));

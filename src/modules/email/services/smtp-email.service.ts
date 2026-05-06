@@ -36,10 +36,13 @@ export class SmtpEmailService extends EmailService implements OnModuleInit {
     this.transporter = nodemailer.createTransport({
       host: email.host,
       port: email.port,
-      secure: false,
+      secure: email.port === 465,
       auth: {
         user: email.username,
         pass: email.password,
+      },
+      tls: {
+        rejectUnauthorized: true,
       },
     });
 

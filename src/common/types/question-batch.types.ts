@@ -26,18 +26,39 @@ export type TQuestionBatchMetadata = z.infer<
   typeof QuestionBatchMetadataSchema
 >;
 
-export const createQuestionBatchSchema = z.object({
-  examType: z.string().min(1),
-  subject: z.string().min(1),
-  topic: z.string().min(1),
-  difficulty: QuestionDifficultySchema,
-  count: z.number().int().min(1).max(100),
-  grade: z
-    .number()
-    .min(1, { message: 'Grade should not be lower than 1' })
-    .max(12, { message: 'Grade cannot be greater than 12' }),
-  questionType: QuestionTypeSchema.default(QuestionType.Mcqs),
-});
+export enum BatchType {
+  BULK = 'BULK',
+  SAMPLE = 'SAMPLE',
+}
+
+export const BatchTypeSchema = z.nativeEnum(BatchType);
+
+export const createQuestionBatchSchema = z
+  .object({
+    examType: z.string().min(1),
+    subject: z.string().min(1),
+    topic: z.string().min(1),
+    difficulty: QuestionDifficultySchema,
+    count: z.number().int().min(0).max(100),
+    grade: z
+      .number()
+      .min(1, { message: 'Grade should not be lower than 1' })
+      .max(12, { message: 'Grade cannot be greater than 12' }),
+    questionType: QuestionTypeSchema.default(QuestionType.Mcqs),
+    batchType: BatchTypeSchema.default(BatchType.BULK),
+  })
+  .superRefine((data, ctx) => {
+    if (data.batchType === BatchType.SAMPLE && data.count > 3) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.too_big,
+        maximum: 3,
+        type: 'number',
+        inclusive: true,
+        message: 'count must be at most 3 for SAMPLE batches',
+        path: ['count'],
+      });
+    }
+  });
 
 export type TCreateQuestionBatch = z.infer<typeof createQuestionBatchSchema>;
 
@@ -100,12 +121,6 @@ export type TQuestionBatchPaginatedResponse = z.infer<
 export const getQuestionBatchItemsQuerySchema = z.object({
   status: QuestionBatchItemStatusSchema.optional(),
 });
-
-export const sampleQuestionBatchSchema = z.object({
-  sampleSize: z.number().int().min(1).max(10).default(3),
-});
-
-export type TQuestionSampleBatch = z.infer<typeof sampleQuestionBatchSchema>;
 
 export type TQuestionBatchItemJobData = {
   user: TAuthUserReq;

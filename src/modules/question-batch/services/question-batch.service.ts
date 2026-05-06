@@ -1,6 +1,6 @@
 import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { Queue } from 'bullmq';
-import { eq, and, or, sum, inArray, sql } from 'drizzle-orm';
+import { eq, and, or, inArray, sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import { err, ok, Result } from 'neverthrow';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
@@ -24,8 +24,8 @@ import { serializeError, calculateGpt4oCost, formatCostUsd } from '@/utils';
 import {
   InjectQuestionBatchItemQueue,
   PROCESS_QUESTION_BATCH_ITEM_JOB,
+  createMediumFrequencyJobOptions,
 } from '@/queues';
-import { createMediumFrequencyJobOptions } from '@/common/queue.types';
 import {
   TCreateQuestionBatch,
   TQuestionBatchResponse,
@@ -272,7 +272,8 @@ export class QuestionBatchService extends BaseService {
         { page, limit },
       );
 
-      if (paginated.items.length === 0) return ok(paginated);
+      if (paginated.items.length === 0)
+        return ok({ items: [], meta: paginated.meta });
 
       // Fetch all items for the current page in a single query, then group in
       // memory — eliminates the N+1 pattern of one query per batch row.
@@ -418,22 +419,14 @@ export class QuestionBatchService extends BaseService {
     errorMessage: string,
   ): Promise<Result<void, TErrorResult>> {
     try {
-      const rows = await this.db
-        .select({ AttemptCount: QuestionBatchItems.AttemptCount })
-        .from(QuestionBatchItems)
-        .where(eq(QuestionBatchItems.Id, itemId));
-
-      const currentAttempts = rows[0]?.AttemptCount ?? 0;
-
-      await this.updateIn(
-        QuestionBatchItems,
-        eq(QuestionBatchItems.Id, itemId),
-        {
+      await this.db
+        .update(QuestionBatchItems)
+        .set({
           Status: QuestionBatchItemStatus.FAILED,
-          AttemptCount: currentAttempts + 1,
+          AttemptCount: sql`${QuestionBatchItems.AttemptCount} + 1`,
           ErrorMessage: errorMessage,
-        },
-      );
+        })
+        .where(eq(QuestionBatchItems.Id, itemId));
 
       return ok(undefined);
     } catch (error) {
@@ -472,19 +465,9 @@ export class QuestionBatchService extends BaseService {
         ? QuestionBatchStatus.FAILED
         : QuestionBatchStatus.COMPLETED;
 
-      // Aggregate token counts across all items
-      const tokenTotals = await this.db
-        .select({
-          totalPromptTokens: sum(QuestionBatchItems.PromptTokens),
-          totalCompletionTokens: sum(QuestionBatchItems.CompletionTokens),
-          totalTokens: sum(QuestionBatchItems.TotalTokens),
-        })
-        .from(QuestionBatchItems)
-        .where(eq(QuestionBatchItems.QuestionBatchId, batchId));
-
-      const pt = Number(tokenTotals[0]?.totalPromptTokens ?? 0);
-      const ct = Number(tokenTotals[0]?.totalCompletionTokens ?? 0);
-      const tt = Number(tokenTotals[0]?.totalTokens ?? 0);
+      const pt = items.reduce((acc, i) => acc + (i.PromptTokens ?? 0), 0);
+      const ct = items.reduce((acc, i) => acc + (i.CompletionTokens ?? 0), 0);
+      const tt = items.reduce((acc, i) => acc + (i.TotalTokens ?? 0), 0);
       const estimatedCostUsd = formatCostUsd(
         calculateGpt4oCost({
           promptTokens: pt,

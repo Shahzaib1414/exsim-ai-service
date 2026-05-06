@@ -8,7 +8,6 @@ import {
   createQuestionBatchSchema,
   getQuestionBatchItemsQuerySchema,
   QuestionBatchesFilterZod,
-  sampleQuestionBatchSchema,
   QuestionBatchPaginatedResponseSchema,
 } from '@/common/types';
 import {
@@ -61,19 +60,6 @@ export const questionBatchContract = c.router(
       responses: {
         200: questionBatchWithItemsResponseSchema,
         404: NotFoundError,
-        500: InternalError,
-      },
-    },
-    sampleQuestionBatch: {
-      summary:
-        'Enqueue a sample subset of items before committing the full question batch',
-      method: 'POST',
-      path: '/:id/sample',
-      body: sampleQuestionBatchSchema,
-      responses: {
-        200: questionBatchResponseSchema,
-        404: NotFoundError,
-        409: ConflictError,
         500: InternalError,
       },
     },
