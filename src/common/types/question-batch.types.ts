@@ -8,7 +8,11 @@ import {
   QuestionType,
   QuestionTypeSchema,
 } from '@/db/schemas/question.schema';
-import { TAuthUserReq } from './common.types';
+import {
+  PaginationMetaSchema,
+  PaginationOptionsSchema,
+  TAuthUserReq,
+} from './common.types';
 
 export const QuestionBatchMetadataSchema = z.object({
   examType: z.string(),
@@ -76,10 +80,22 @@ export type TQuestionBatchItemResponse = z.infer<
   typeof questionBatchItemResponseSchema
 >;
 
-export const listQuestionBatchesQuerySchema = z.object({
-  page: z.coerce.number().int().min(1).default(1),
-  limit: z.coerce.number().int().min(1).max(100).default(20),
+export const QuestionBatchesFilterZod = PaginationOptionsSchema.extend({
+  subject: z.string().optional(),
+  topic: z.string().optional(),
+  examType: z.string().optional(),
+  search: z.string().optional(),
+  status: QuestionBatchStatusSchema.optional(),
 });
+export type TQuestionBatchesFilter = z.infer<typeof QuestionBatchesFilterZod>;
+
+export const QuestionBatchPaginatedResponseSchema = z.object({
+  items: z.array(questionBatchResponseSchema),
+  meta: PaginationMetaSchema,
+});
+export type TQuestionBatchPaginatedResponse = z.infer<
+  typeof QuestionBatchPaginatedResponseSchema
+>;
 
 export const getQuestionBatchItemsQuerySchema = z.object({
   status: QuestionBatchItemStatusSchema.optional(),

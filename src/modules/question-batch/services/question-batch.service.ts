@@ -1,6 +1,7 @@
 import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { Queue } from 'bullmq';
-import { eq, and, sum, inArray } from 'drizzle-orm';
+import { eq, and, or, sum, inArray, sql } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import { err, ok, Result } from 'neverthrow';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 
@@ -31,6 +32,8 @@ import {
   TQuestionBatchWithItemsResponse,
   TQuestionBatchItemJobData,
   TQuestionBatchItemResponse,
+  TQuestionBatchPaginatedResponse,
+  TQuestionBatchesFilter,
 } from '@/common/types';
 import { AppInsightsMetricsService } from '@/common/services';
 import { QuestionService } from '@/modules/question/services/question.service';
@@ -73,10 +76,13 @@ export class QuestionBatchService extends BaseService {
     }
 
     // Queue is empty but DB still shows IN_PROGRESS — batch is stale. Heal it.
-    await this.db
-      .update(QuestionBatches)
-      .set({ Status: QuestionBatchStatus.FAILED })
-      .where(eq(QuestionBatches.Id, inProgress.id));
+    await this.updateIn(
+      QuestionBatches,
+      eq(QuestionBatches.Id, inProgress.id),
+      {
+        Status: QuestionBatchStatus.FAILED,
+      },
+    );
 
     this.logger.warn({
       message: 'Auto-healed stale IN_PROGRESS batch',
@@ -217,21 +223,60 @@ export class QuestionBatchService extends BaseService {
   }
 
   async listQuestionBatches(
-    page: number,
-    limit: number,
-  ): Promise<Result<TQuestionBatchResponse[], TErrorResult>> {
+    filters: TQuestionBatchesFilter,
+  ): Promise<Result<TQuestionBatchPaginatedResponse, TErrorResult>> {
     try {
-      const batches = await this.db
-        .select()
-        .from(QuestionBatches)
-        .limit(limit)
-        .offset((page - 1) * limit);
+      const { page, limit, subject, topic, examType, search, status } = filters;
 
-      if (batches.length === 0) return ok([]);
+      const conditions: SQL[] = [];
+
+      if (status) {
+        conditions.push(sql`${QuestionBatches.Status} ILIKE ${status}`);
+      }
+      if (subject) {
+        conditions.push(
+          sql`${QuestionBatches.MetaData}->>'subject' ILIKE ${'%' + subject + '%'}`,
+        );
+      }
+      if (topic) {
+        conditions.push(
+          sql`${QuestionBatches.MetaData}->>'topic' ILIKE ${'%' + topic + '%'}`,
+        );
+      }
+      if (examType) {
+        conditions.push(
+          sql`${QuestionBatches.MetaData}->>'examType' ILIKE ${'%' + examType + '%'}`,
+        );
+      }
+      if (search) {
+        const term = `%${search}%`;
+        conditions.push(
+          or(
+            sql`${QuestionBatches.MetaData}->>'subject' ILIKE ${term}`,
+            sql`${QuestionBatches.MetaData}->>'topic' ILIKE ${term}`,
+            sql`${QuestionBatches.MetaData}->>'examType' ILIKE ${term}`,
+          )!,
+        );
+      }
+
+      const where = conditions.length > 0 ? and(...conditions) : undefined;
+
+      const paginated = await this.paginate(
+        this.db
+          .select()
+          .from(QuestionBatches)
+          .where(where)
+          .limit(limit)
+          .offset((page - 1) * limit),
+        this.countIn(QuestionBatches, where),
+        { page, limit },
+      );
+
+      if (paginated.items.length === 0) return ok(paginated);
 
       // Fetch all items for the current page in a single query, then group in
       // memory — eliminates the N+1 pattern of one query per batch row.
-      const batchIds = batches.map((b) => b.Id);
+      const batchIds = paginated.items.map((b) => b.Id);
       const allItems = await this.db
         .select()
         .from(QuestionBatchItems)
@@ -244,11 +289,12 @@ export class QuestionBatchService extends BaseService {
         itemsByBatch.set(item.QuestionBatchId, list);
       }
 
-      return ok(
-        batches.map((batch) =>
+      return ok({
+        items: paginated.items.map((batch) =>
           this.toQuestionBatchResponse(batch, itemsByBatch.get(batch.Id) ?? []),
         ),
-      );
+        meta: paginated.meta,
+      });
     } catch (error) {
       this.logger.error({
         message: 'Failed to list question batches',

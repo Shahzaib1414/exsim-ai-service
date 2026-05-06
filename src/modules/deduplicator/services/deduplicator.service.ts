@@ -41,6 +41,7 @@ export class DeduplicatorService extends BaseService {
         SELECT "QuestionId"
         FROM "QuestionEmbeddings"
         WHERE (1 - ("Embedding" <=> ${vectorLiteral}::vector)) >= ${threshold}
+        ORDER BY "Embedding" <=> ${vectorLiteral}::vector ASC
         LIMIT 5
       `);
 

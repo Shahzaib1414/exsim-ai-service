@@ -1,9 +1,10 @@
 import { Inject } from '@nestjs/common';
-import { eq, SQL } from 'drizzle-orm';
+import { count, eq, SQL } from 'drizzle-orm';
 import type { PgColumn, PgTable, TableConfig } from 'drizzle-orm/pg-core';
 
 import { DRIZZLE_CLIENT } from '@/database/database.module';
 import type { DrizzleClient } from '@/db';
+import type { TPaginatedResponse, TPaginationOptions } from '@/common/types';
 
 /**
  * Public generic constraint: any table that spreads `baseEntityColumns`
@@ -136,6 +137,137 @@ export abstract class BaseService<TTable extends TableWithId = TableWithId> {
     return rows[0] ?? null;
   }
 
+  /**
+   * Delete a single row by `Id` and return the deleted record, or `null` if
+   * no matching row was found.
+   */
+  protected async deleteById(
+    id: string,
+  ): Promise<TTable['$inferSelect'] | null> {
+    const table = this.requireTable();
+    const rows = await this.db
+      .delete(table)
+      .where(eq(table.Id, id))
+      .returning();
+    return (rows[0] as TTable['$inferSelect']) ?? null;
+  }
+
+  /**
+   * Delete all rows matching a WHERE condition and return the deleted records.
+   */
+  protected async deleteWhere(where: SQL): Promise<TTable['$inferSelect'][]> {
+    const table = this.requireTable();
+    const rows = await this.db.delete(table).where(where).returning();
+    return rows as TTable['$inferSelect'][];
+  }
+
+  /**
+   * Count rows, optionally filtered by a WHERE condition.
+   */
+  protected async countWhere(where?: SQL): Promise<number> {
+    const table = this.requireTable();
+    const base = this.db.select({ total: count() }).from(table);
+    const [{ total }] = where ? await base.where(where) : await base;
+    return total;
+  }
+
+  /**
+   * Paginated query with optional filtering and ordering.
+   *
+   * Compose `where` with `and()` / `or()` / `ilike()` etc. from `drizzle-orm`
+   * before passing it in. Compose `orderBy` with `asc()` / `desc()`.
+   *
+   * @example
+   * ```ts
+   * return this.findManyPaginated({
+   *   where: and(eq(Orders.Status, 'active'), ilike(Orders.Name, `%${term}%`)),
+   *   orderBy: [desc(Orders.Created), asc(Orders.Name)],
+   *   pagination,
+   * });
+   * ```
+   */
+  protected async findManyPaginated(options: {
+    where?: SQL;
+    orderBy?: SQL | SQL[];
+    pagination: TPaginationOptions;
+  }): Promise<TPaginatedResponse<TTable['$inferSelect']>> {
+    const table = this.requireTable();
+    const {
+      where,
+      pagination: { page, limit },
+    } = options;
+    const orderCols = options.orderBy
+      ? Array.isArray(options.orderBy)
+        ? options.orderBy
+        : [options.orderBy]
+      : [];
+    const offset = (page - 1) * limit;
+
+    const selectBase = this.db.select().from(table).where(where);
+
+    const [items, [{ total }]] = await Promise.all([
+      orderCols.length
+        ? selectBase
+            .orderBy(...(orderCols as [SQL, ...SQL[]]))
+            .limit(limit)
+            .offset(offset)
+        : selectBase.limit(limit).offset(offset),
+      this.db.select({ total: count() }).from(table).where(where),
+    ]);
+
+    return {
+      items: items as TTable['$inferSelect'][],
+      meta: {
+        itemCount: items.length,
+        totalItems: total,
+        itemsPerPage: limit,
+        totalPages: Math.ceil(total / limit),
+        currentPage: page,
+      },
+    };
+  }
+
+  /**
+   * Builds a partial update object for PATCH operations by stripping
+   * `undefined` values and `null` values on required fields.
+   *
+   * @example
+   * ```ts
+   * const patch = this.buildPartialUpdate(dto, ['Name', 'Status']);
+   * return this.updateById(id, patch);
+   * ```
+   */
+  protected buildPartialUpdate<T extends Record<string, unknown>>(
+    data: Partial<T>,
+    requiredFields: (keyof T)[] = [],
+  ): Partial<T> {
+    return Object.entries(data).reduce<Partial<T>>((acc, [key, value]) => {
+      if (value === undefined) return acc;
+      if (value === null && requiredFields.includes(key as keyof T)) return acc;
+      return { ...acc, [key]: value };
+    }, {});
+  }
+
+  // ── Pagination helper ──────────────────────────────────────────────────────
+
+  protected async paginate<T>(
+    dataPromise: Promise<T[]>,
+    totalPromise: Promise<number>,
+    { page, limit }: TPaginationOptions,
+  ): Promise<TPaginatedResponse<T>> {
+    const [items, total] = await Promise.all([dataPromise, totalPromise]);
+    return {
+      items,
+      meta: {
+        itemCount: items.length,
+        totalItems: total,
+        itemsPerPage: limit,
+        totalPages: Math.ceil(total / limit),
+        currentPage: page,
+      },
+    };
+  }
+
   // ── Multi-table helpers ────────────────────────────────────────────────────
   // For orchestration services that call super(db) without a bound table these
   // methods accept the target table explicitly so audit $defaultFn/$onUpdateFn
@@ -181,5 +313,17 @@ export abstract class BaseService<TTable extends TableWithId = TableWithId> {
       .where(where)
       .returning();
     return rows as T['$inferSelect'][];
+  }
+
+  /**
+   * Count rows in any table, optionally filtered by a WHERE condition.
+   */
+  protected async countIn<T extends TableWithId>(
+    table: T,
+    where?: SQL,
+  ): Promise<number> {
+    const base = this.db.select({ total: count() }).from(table);
+    const [{ total }] = where ? await base.where(where) : await base;
+    return total;
   }
 }

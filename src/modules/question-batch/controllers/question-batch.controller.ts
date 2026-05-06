@@ -30,10 +30,8 @@ export class QuestionBatchController {
     return tsRestHandler(
       questionBatchContract.listQuestionBatches,
       async ({ query }) => {
-        const result = await this.questionBatchService.listQuestionBatches(
-          query.page,
-          query.limit,
-        );
+        const result =
+          await this.questionBatchService.listQuestionBatches(query);
         if (result.isErr()) return toErrorResponse(result.error);
         return { status: HttpStatus.OK, body: result.value };
       },

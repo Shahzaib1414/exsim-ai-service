@@ -7,8 +7,9 @@ import {
   questionBatchWithItemsResponseSchema,
   createQuestionBatchSchema,
   getQuestionBatchItemsQuerySchema,
-  listQuestionBatchesQuerySchema,
+  QuestionBatchesFilterZod,
   sampleQuestionBatchSchema,
+  QuestionBatchPaginatedResponseSchema,
 } from '@/common/types';
 import {
   BadRequestError,
@@ -36,9 +37,9 @@ export const questionBatchContract = c.router(
       summary: 'List all question batches',
       method: 'GET',
       path: '/',
-      query: listQuestionBatchesQuerySchema,
+      query: QuestionBatchesFilterZod,
       responses: {
-        200: z.array(questionBatchResponseSchema),
+        200: QuestionBatchPaginatedResponseSchema,
         500: InternalError,
       },
     },
