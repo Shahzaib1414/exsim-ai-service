@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { LoggerModule } from 'nestjs-pino';
 import { BullModule } from '@nestjs/bullmq';
-import { QueueDashboardModule } from './queues';
+import { QueueDashboardModule, QueueModule } from './queues';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 import { randomUUID } from 'crypto';
@@ -74,6 +74,7 @@ import { BaseWorkerModule } from './workers/base.worker.module';
       }),
     }),
     QueueDashboardModule,
+    QueueModule.registerFlowProducer(),
     ThrottlerModule.forRoot({
       throttlers: [{ ttl: 60_000, limit: 10 }],
     }),

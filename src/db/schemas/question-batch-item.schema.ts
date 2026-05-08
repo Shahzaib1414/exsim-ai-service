@@ -1,4 +1,11 @@
-import { integer, pgTable, text, uuid, varchar } from 'drizzle-orm/pg-core';
+import {
+  boolean,
+  integer,
+  pgTable,
+  text,
+  uuid,
+  varchar,
+} from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 import { z } from 'zod';
 
@@ -27,6 +34,7 @@ export const QuestionBatchItems = pgTable('QuestionBatchItems', {
     .notNull()
     .default(QuestionBatchItemStatus.PENDING)
     .$type<TQuestionBatchItemStatus>(),
+  IsSample: boolean('IsSample').notNull().default(false),
   AttemptCount: integer('AttemptCount').notNull().default(0),
   ErrorMessage: text('ErrorMessage'),
   PromptTokens: integer('PromptTokens').notNull().default(0),

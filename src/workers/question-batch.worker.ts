@@ -14,7 +14,7 @@ import { serializeError } from '@/utils';
 import { QuestionBatchItemStatus, QuestionBatchStatus } from '@/db';
 import { BaseWorker } from './base.worker';
 
-@Processor(QUESTION_BATCH_ITEM_QUEUE, { concurrency: 5 })
+@Processor(QUESTION_BATCH_ITEM_QUEUE, { concurrency: 1 })
 @Injectable()
 export class QuestionBatchWorker extends BaseWorker {
   @Inject(QuestionBatchService)

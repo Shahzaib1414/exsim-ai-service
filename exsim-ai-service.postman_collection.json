@@ -1,0 +1,675 @@
+{
+  "info": {
+    "name": "ExSim AI Service",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "All endpoints for the ExSim AI Service. Set the `baseUrl` and `userId` collection variables before running."
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000/api",
+      "type": "string"
+    },
+    {
+      "key": "userId",
+      "value": "00000000-0000-0000-0000-000000000000",
+      "type": "string",
+      "description": "UUID of an active Administrator user — sent as x-user-id header on every request"
+    },
+    { "key": "batchId",     "value": "", "type": "string" },
+    { "key": "batchItemId", "value": "", "type": "string" },
+    { "key": "sessionId",   "value": "", "type": "string" }
+  ],
+  "auth": {
+    "type": "apikey",
+    "apikey": [
+      { "key": "key",   "value": "x-user-id" },
+      { "key": "value", "value": "{{userId}}" },
+      { "key": "in",    "value": "header" }
+    ]
+  },
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["health"]
+            },
+            "description": "Public liveness probe. Checks Postgres (SELECT 1) and Redis (PING). Returns 503 if either is unavailable."
+          },
+          "response": [
+            {
+              "name": "200 OK — all healthy",
+              "status": "OK",
+              "code": 200,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"status\": \"ok\",\n  \"version\": \"0.0.1\",\n  \"environment\": \"development\",\n  \"checks\": {\n    \"database\": \"ok\",\n    \"redis\": \"ok\"\n  }\n}"
+            },
+            {
+              "name": "503 Service Unavailable — dependency down",
+              "status": "Service Unavailable",
+              "code": 503,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"status\": \"error\",\n  \"version\": \"0.0.1\",\n  \"environment\": \"production\",\n  \"checks\": {\n    \"database\": \"ok\",\n    \"redis\": \"error\"\n  }\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Generator",
+      "item": [
+        {
+          "name": "Generate One Question",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"examType\": \"A-Level\",\n  \"subject\": \"Physics\",\n  \"topic\": \"Newton's Laws of Motion\",\n  \"difficulty\": \"Medium\",\n  \"grade\": 11,\n  \"questionType\": \"Mcqs\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/generator/one",
+              "host": ["{{baseUrl}}"],
+              "path": ["generator", "one"]
+            },
+            "description": "Generate a single exam question via Azure OpenAI GPT-4o.\n\n**difficulty**: `High` | `Medium` | `Low`\n**questionType**: `Mcqs` | `Short` | `Comprehensive` | `Grouped` | `Closed`"
+          },
+          "response": [
+            {
+              "name": "201 Created",
+              "status": "Created",
+              "code": 201,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"questionId\": \"a1b2c3d4-e5f6-7890-abcd-ef1234567890\",\n  \"usage\": {\n    \"promptTokens\": 320,\n    \"completionTokens\": 480,\n    \"totalTokens\": 800\n  }\n}"
+            },
+            {
+              "name": "400 Bad Request — validation error",
+              "status": "Bad Request",
+              "code": 400,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"status\": 400,\n  \"message\": \"BAD_REQUEST\",\n  \"errors\": [\n    \"difficulty: Invalid enum value. Expected 'High' | 'Medium' | 'Low'\"\n  ]\n}"
+            },
+            {
+              "name": "401 Unauthorized — missing or invalid x-user-id",
+              "status": "Unauthorized",
+              "code": 401,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"status\": 401,\n  \"message\": \"UNAUTHORIZED\",\n  \"errors\": [\n    \"Missing x-user-id header\"\n  ]\n}"
+            },
+            {
+              "name": "422 Unprocessable Entity",
+              "status": "Unprocessable Entity",
+              "code": 422,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"status\": 422,\n  \"message\": \"UNPROCESSABLE_ENTITY\",\n  \"errors\": [\n    \"failed to parse LLM structured output\"\n  ]\n}"
+            },
+            {
+              "name": "500 Internal Server Error",
+              "status": "Internal Server Error",
+              "code": 500,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"status\": 500,\n  \"message\": \"INTERNAL_SERVER_ERROR\",\n  \"errors\": [\n    \"failed to generate question\"\n  ]\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Question Batches",
+      "item": [
+        {
+          "name": "Create Question Batch",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res.id) pm.collectionVariables.set('batchId', res.id);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "examType",     "value": "A-Level",                   "type": "text" },
+                { "key": "subject",      "value": "Physics",                   "type": "text" },
+                { "key": "topic",        "value": "Newton's Laws of Motion",   "type": "text" },
+                { "key": "difficulty",   "value": "Medium",                    "type": "text", "description": "High | Medium | Low" },
+                { "key": "grade",        "value": "11",                        "type": "text" },
+                { "key": "count",        "value": "5",                         "type": "text", "description": "1–100. Samples: count ≤ 3 → 1 sample, count > 3 → 3 samples" },
+                { "key": "questionType", "value": "Mcqs",                      "type": "text", "description": "Mcqs | Short | Comprehensive | Grouped | Closed" },
+                { "key": "file",         "type": "file", "disabled": true,     "description": "Optional PDF for grounding context. When provided, document ingestion runs as a sibling job in the flow." }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/question-batches",
+              "host": ["{{baseUrl}}"],
+              "path": ["question-batches"]
+            },
+            "description": "Create a batch and kick off the sample-first generation flow.\n\nEvery batch automatically generates a small sample set first:\n- `count ≤ 3` → 1 sample question\n- `count > 3` → 3 sample questions\n\nOnce all samples complete, the batch moves to `PENDING_REVIEW` and an email is sent. The user must then call **Approve** or **Reject**.\n\nAn optional `file` (PDF) can be attached for grounding context — it is ingested as a sibling job in the BullMQ flow.\n\nThe test script auto-saves the returned `id` into `{{batchId}}`."
+          },
+          "response": [
+            {
+              "name": "201 Created",
+              "status": "Created",
+              "code": 201,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"id\": \"b1c2d3e4-f5a6-7890-bcde-f12345678901\",\n  \"metadata\": {\n    \"examType\": \"A-Level\",\n    \"subject\": \"Physics\",\n    \"topic\": \"Newton's Laws of Motion\",\n    \"difficulty\": \"Medium\",\n    \"grade\": 11,\n    \"questionType\": \"Mcqs\"\n  },\n  \"requestedCount\": 5,\n  \"sampleCount\": 3,\n  \"completedCount\": 0,\n  \"failedCount\": 0,\n  \"status\": \"IN_PROGRESS\",\n  \"totalPromptTokens\": 0,\n  \"totalCompletionTokens\": 0,\n  \"totalTokens\": 0,\n  \"estimatedCostUsd\": \"0.00\"\n}"
+            },
+            {
+              "name": "409 Conflict — batch already in progress or pending review",
+              "status": "Conflict",
+              "code": 409,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"status\": 409,\n  \"message\": \"CONFLICT\",\n  \"errors\": [\n    \"A question batch is already in progress or pending review\"\n  ]\n}"
+            },
+            {
+              "name": "500 Internal Server Error",
+              "status": "Internal Server Error",
+              "code": 500,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"status\": 500,\n  \"message\": \"INTERNAL_SERVER_ERROR\",\n  \"errors\": [\n    \"failed to create question batch\"\n  ]\n}"
+            }
+          ]
+        },
+        {
+          "name": "Approve Question Batch",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/question-batches/{{batchId}}/approve",
+              "host": ["{{baseUrl}}"],
+              "path": ["question-batches", "{{batchId}}", "approve"]
+            },
+            "description": "Approve the sample review gate for a `PENDING_REVIEW` batch.\n\nThe batch moves back to `IN_PROGRESS` and the remainder items (`requestedCount - sampleCount`) are created and enqueued individually. If there are no remainder items (e.g. `count = 1`), the batch is immediately marked `COMPLETED`.\n\nReturns `409` if the batch is not in `PENDING_REVIEW` status."
+          },
+          "response": [
+            {
+              "name": "200 OK — remainder enqueued",
+              "status": "OK",
+              "code": 200,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"id\": \"b1c2d3e4-f5a6-7890-bcde-f12345678901\",\n  \"metadata\": {\n    \"examType\": \"A-Level\",\n    \"subject\": \"Physics\",\n    \"topic\": \"Newton's Laws of Motion\",\n    \"difficulty\": \"Medium\",\n    \"grade\": 11,\n    \"questionType\": \"Mcqs\"\n  },\n  \"requestedCount\": 5,\n  \"sampleCount\": 3,\n  \"completedCount\": 3,\n  \"failedCount\": 0,\n  \"status\": \"IN_PROGRESS\",\n  \"totalPromptTokens\": 960,\n  \"totalCompletionTokens\": 1440,\n  \"totalTokens\": 2400,\n  \"estimatedCostUsd\": \"0.02\"\n}"
+            },
+            {
+              "name": "200 OK — immediately completed (no remainder)",
+              "status": "OK",
+              "code": 200,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"id\": \"b1c2d3e4-f5a6-7890-bcde-f12345678901\",\n  \"metadata\": {\n    \"examType\": \"A-Level\",\n    \"subject\": \"Physics\",\n    \"topic\": \"Newton's Laws of Motion\",\n    \"difficulty\": \"Medium\",\n    \"grade\": 11,\n    \"questionType\": \"Mcqs\"\n  },\n  \"requestedCount\": 1,\n  \"sampleCount\": 1,\n  \"completedCount\": 1,\n  \"failedCount\": 0,\n  \"status\": \"COMPLETED\",\n  \"totalPromptTokens\": 320,\n  \"totalCompletionTokens\": 480,\n  \"totalTokens\": 800,\n  \"estimatedCostUsd\": \"0.01\"\n}"
+            },
+            {
+              "name": "404 Not Found",
+              "status": "Not Found",
+              "code": 404,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"status\": 404,\n  \"message\": \"NOT_FOUND\",\n  \"errors\": [\n    \"question batch not found\"\n  ]\n}"
+            },
+            {
+              "name": "409 Conflict — batch not pending review",
+              "status": "Conflict",
+              "code": 409,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"status\": 409,\n  \"message\": \"CONFLICT\",\n  \"errors\": [\n    \"question batch is not pending review\"\n  ]\n}"
+            },
+            {
+              "name": "500 Internal Server Error",
+              "status": "Internal Server Error",
+              "code": 500,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"status\": 500,\n  \"message\": \"INTERNAL_SERVER_ERROR\",\n  \"errors\": [\n    \"failed to approve question batch\"\n  ]\n}"
+            }
+          ]
+        },
+        {
+          "name": "Reject Question Batch",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/question-batches/{{batchId}}/reject",
+              "host": ["{{baseUrl}}"],
+              "path": ["question-batches", "{{batchId}}", "reject"]
+            },
+            "description": "Reject the sample review gate for a `PENDING_REVIEW` batch.\n\nAll sample questions are deleted from the questions store. All batch items are removed. The batch is marked `REJECTED` and kept for audit purposes.\n\nReturns `409` if the batch is not in `PENDING_REVIEW` status."
+          },
+          "response": [
+            {
+              "name": "204 No Content",
+              "status": "No Content",
+              "code": 204,
+              "header": [],
+              "body": ""
+            },
+            {
+              "name": "404 Not Found",
+              "status": "Not Found",
+              "code": 404,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"status\": 404,\n  \"message\": \"NOT_FOUND\",\n  \"errors\": [\n    \"question batch not found\"\n  ]\n}"
+            },
+            {
+              "name": "409 Conflict — batch not pending review",
+              "status": "Conflict",
+              "code": 409,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"status\": 409,\n  \"message\": \"CONFLICT\",\n  \"errors\": [\n    \"question batch is not pending review\"\n  ]\n}"
+            },
+            {
+              "name": "500 Internal Server Error",
+              "status": "Internal Server Error",
+              "code": 500,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"status\": 500,\n  \"message\": \"INTERNAL_SERVER_ERROR\",\n  \"errors\": [\n    \"failed to reject question batch\"\n  ]\n}"
+            }
+          ]
+        },
+        {
+          "name": "List Question Batches",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/question-batches?page=1&limit=10",
+              "host": ["{{baseUrl}}"],
+              "path": ["question-batches"],
+              "query": [
+                { "key": "page",     "value": "1" },
+                { "key": "limit",    "value": "10" },
+                { "key": "subject",  "value": "", "disabled": true },
+                { "key": "topic",    "value": "", "disabled": true },
+                { "key": "examType", "value": "", "disabled": true },
+                { "key": "search",   "value": "", "disabled": true },
+                { "key": "status",   "value": "IN_PROGRESS", "disabled": true, "description": "PENDING | IN_PROGRESS | PENDING_REVIEW | COMPLETED | FAILED | APPROVED | REJECTED" }
+              ]
+            },
+            "description": "Paginated list of all question batches with optional filters."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"items\": [\n    {\n      \"id\": \"b1c2d3e4-f5a6-7890-bcde-f12345678901\",\n      \"metadata\": {\n        \"examType\": \"A-Level\",\n        \"subject\": \"Physics\",\n        \"topic\": \"Newton's Laws of Motion\",\n        \"difficulty\": \"Medium\",\n        \"grade\": 11,\n        \"questionType\": \"Mcqs\"\n      },\n      \"requestedCount\": 5,\n      \"sampleCount\": 3,\n      \"completedCount\": 5,\n      \"failedCount\": 0,\n      \"status\": \"COMPLETED\",\n      \"totalPromptTokens\": 1600,\n      \"totalCompletionTokens\": 2400,\n      \"totalTokens\": 4000,\n      \"estimatedCostUsd\": \"0.04\"\n    }\n  ],\n  \"meta\": {\n    \"itemCount\": 1,\n    \"totalItems\": 1,\n    \"itemsPerPage\": 10,\n    \"totalPages\": 1,\n    \"currentPage\": 1\n  }\n}"
+            },
+            {
+              "name": "500 Internal Server Error",
+              "status": "Internal Server Error",
+              "code": 500,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"status\": 500,\n  \"message\": \"INTERNAL_SERVER_ERROR\",\n  \"errors\": [\n    \"failed to list question batches\"\n  ]\n}"
+            }
+          ]
+        },
+        {
+          "name": "Get Question Batch",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/question-batches/{{batchId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["question-batches", "{{batchId}}"]
+            },
+            "description": "Get progress, status, and token usage for a single batch."
+          },
+          "response": [
+            {
+              "name": "200 OK — in progress (sample phase)",
+              "status": "OK",
+              "code": 200,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"id\": \"b1c2d3e4-f5a6-7890-bcde-f12345678901\",\n  \"metadata\": {\n    \"examType\": \"A-Level\",\n    \"subject\": \"Physics\",\n    \"topic\": \"Newton's Laws of Motion\",\n    \"difficulty\": \"Medium\",\n    \"grade\": 11,\n    \"questionType\": \"Mcqs\"\n  },\n  \"requestedCount\": 5,\n  \"sampleCount\": 3,\n  \"completedCount\": 1,\n  \"failedCount\": 0,\n  \"status\": \"IN_PROGRESS\",\n  \"totalPromptTokens\": 320,\n  \"totalCompletionTokens\": 480,\n  \"totalTokens\": 800,\n  \"estimatedCostUsd\": \"0.01\"\n}"
+            },
+            {
+              "name": "200 OK — pending review",
+              "status": "OK",
+              "code": 200,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"id\": \"b1c2d3e4-f5a6-7890-bcde-f12345678901\",\n  \"metadata\": {\n    \"examType\": \"A-Level\",\n    \"subject\": \"Physics\",\n    \"topic\": \"Newton's Laws of Motion\",\n    \"difficulty\": \"Medium\",\n    \"grade\": 11,\n    \"questionType\": \"Mcqs\"\n  },\n  \"requestedCount\": 5,\n  \"sampleCount\": 3,\n  \"completedCount\": 3,\n  \"failedCount\": 0,\n  \"status\": \"PENDING_REVIEW\",\n  \"totalPromptTokens\": 960,\n  \"totalCompletionTokens\": 1440,\n  \"totalTokens\": 2400,\n  \"estimatedCostUsd\": \"0.02\"\n}"
+            },
+            {
+              "name": "200 OK — completed",
+              "status": "OK",
+              "code": 200,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"id\": \"b1c2d3e4-f5a6-7890-bcde-f12345678901\",\n  \"metadata\": {\n    \"examType\": \"A-Level\",\n    \"subject\": \"Physics\",\n    \"topic\": \"Newton's Laws of Motion\",\n    \"difficulty\": \"Medium\",\n    \"grade\": 11,\n    \"questionType\": \"Mcqs\"\n  },\n  \"requestedCount\": 5,\n  \"sampleCount\": 3,\n  \"completedCount\": 5,\n  \"failedCount\": 0,\n  \"status\": \"COMPLETED\",\n  \"totalPromptTokens\": 1600,\n  \"totalCompletionTokens\": 2400,\n  \"totalTokens\": 4000,\n  \"estimatedCostUsd\": \"0.04\"\n}"
+            },
+            {
+              "name": "200 OK — rejected",
+              "status": "OK",
+              "code": 200,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"id\": \"b1c2d3e4-f5a6-7890-bcde-f12345678901\",\n  \"metadata\": {\n    \"examType\": \"A-Level\",\n    \"subject\": \"Physics\",\n    \"topic\": \"Newton's Laws of Motion\",\n    \"difficulty\": \"Medium\",\n    \"grade\": 11,\n    \"questionType\": \"Mcqs\"\n  },\n  \"requestedCount\": 5,\n  \"sampleCount\": 3,\n  \"completedCount\": 0,\n  \"failedCount\": 0,\n  \"status\": \"REJECTED\",\n  \"totalPromptTokens\": 0,\n  \"totalCompletionTokens\": 0,\n  \"totalTokens\": 0,\n  \"estimatedCostUsd\": \"0.00\"\n}"
+            },
+            {
+              "name": "404 Not Found",
+              "status": "Not Found",
+              "code": 404,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"status\": 404,\n  \"message\": \"NOT_FOUND\",\n  \"errors\": [\n    \"question batch not found\"\n  ]\n}"
+            },
+            {
+              "name": "500 Internal Server Error",
+              "status": "Internal Server Error",
+              "code": 500,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"status\": 500,\n  \"message\": \"INTERNAL_SERVER_ERROR\",\n  \"errors\": [\n    \"failed to get batch\"\n  ]\n}"
+            }
+          ]
+        },
+        {
+          "name": "Get Batch Items",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/question-batches/{{batchId}}/items",
+              "host": ["{{baseUrl}}"],
+              "path": ["question-batches", "{{batchId}}", "items"],
+              "query": [
+                { "key": "status", "value": "FAILED", "disabled": true, "description": "PENDING | IN_PROGRESS | COMPLETED | FAILED | NEEDS_REVIEW" }
+              ]
+            },
+            "description": "Get all items in a batch. Optionally filter by `status`.\n\nEach item includes an `isSample` flag indicating whether it belongs to the initial sample set."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"id\": \"b1c2d3e4-f5a6-7890-bcde-f12345678901\",\n  \"metadata\": {\n    \"examType\": \"A-Level\",\n    \"subject\": \"Physics\",\n    \"topic\": \"Newton's Laws of Motion\",\n    \"difficulty\": \"Medium\",\n    \"grade\": 11,\n    \"questionType\": \"Mcqs\"\n  },\n  \"requestedCount\": 5,\n  \"sampleCount\": 3,\n  \"completedCount\": 4,\n  \"failedCount\": 1,\n  \"status\": \"IN_PROGRESS\",\n  \"totalPromptTokens\": 1280,\n  \"totalCompletionTokens\": 1920,\n  \"totalTokens\": 3200,\n  \"estimatedCostUsd\": \"0.03\",\n  \"items\": [\n    {\n      \"id\": \"d4e5f6a7-b8c9-0123-defa-bc0123456789\",\n      \"status\": \"COMPLETED\",\n      \"isSample\": true,\n      \"questionId\": \"a1b2c3d4-e5f6-7890-abcd-ef1234567890\",\n      \"attemptCount\": 1,\n      \"errorMessage\": null,\n      \"promptTokens\": 320,\n      \"completionTokens\": 480,\n      \"totalTokens\": 800\n    },\n    {\n      \"id\": \"e5f6a7b8-c9d0-1234-efab-cd1234567890\",\n      \"status\": \"FAILED\",\n      \"isSample\": false,\n      \"questionId\": null,\n      \"attemptCount\": 3,\n      \"errorMessage\": \"LLM returned invalid structured output after 3 attempts\",\n      \"promptTokens\": 0,\n      \"completionTokens\": 0,\n      \"totalTokens\": 0\n    }\n  ]\n}"
+            },
+            {
+              "name": "404 Not Found",
+              "status": "Not Found",
+              "code": 404,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"status\": 404,\n  \"message\": \"NOT_FOUND\",\n  \"errors\": [\n    \"batch not found\"\n  ]\n}"
+            },
+            {
+              "name": "500 Internal Server Error",
+              "status": "Internal Server Error",
+              "code": 500,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"status\": 500,\n  \"message\": \"INTERNAL_SERVER_ERROR\",\n  \"errors\": [\n    \"failed to get batch items\"\n  ]\n}"
+            }
+          ]
+        },
+        {
+          "name": "Retry Duplicate Item",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/question-batches/items/{{batchItemId}}/retry",
+              "host": ["{{baseUrl}}"],
+              "path": ["question-batches", "items", "{{batchItemId}}", "retry"]
+            },
+            "description": "Re-enqueue a DUPLICATE item using its similar question IDs as negative examples to force the LLM away from duplicates."
+          },
+          "response": [
+            {
+              "name": "200 OK — item re-queued",
+              "status": "OK",
+              "code": 200,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"id\": \"d4e5f6a7-b8c9-0123-defa-bc0123456789\",\n  \"status\": \"PENDING\",\n  \"isSample\": false,\n  \"questionId\": null,\n  \"attemptCount\": 1,\n  \"errorMessage\": null,\n  \"promptTokens\": 0,\n  \"completionTokens\": 0,\n  \"totalTokens\": 0\n}"
+            },
+            {
+              "name": "404 Not Found — item does not exist",
+              "status": "Not Found",
+              "code": 404,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"status\": 404,\n  \"message\": \"NOT_FOUND\",\n  \"errors\": [\n    \"batch item not found\"\n  ]\n}"
+            },
+            {
+              "name": "409 Conflict — question is not a duplicate",
+              "status": "Conflict",
+              "code": 409,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"status\": 409,\n  \"message\": \"CONFLICT\",\n  \"errors\": [\n    \"associated question is not a duplicate\"\n  ]\n}"
+            },
+            {
+              "name": "500 Internal Server Error",
+              "status": "Internal Server Error",
+              "code": 500,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"status\": 500,\n  \"message\": \"INTERNAL_SERVER_ERROR\",\n  \"errors\": [\n    \"failed to retry duplicate item\"\n  ]\n}"
+            }
+          ]
+        },
+        {
+          "name": "Discard Duplicate Item",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/question-batches/items/{{batchItemId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["question-batches", "items", "{{batchItemId}}"]
+            },
+            "description": "Permanently delete the duplicate question and its batch item. Triggers a batch status re-evaluation."
+          },
+          "response": [
+            {
+              "name": "204 No Content",
+              "status": "No Content",
+              "code": 204,
+              "header": [],
+              "body": ""
+            },
+            {
+              "name": "404 Not Found",
+              "status": "Not Found",
+              "code": 404,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"status\": 404,\n  \"message\": \"NOT_FOUND\",\n  \"errors\": [\n    \"batch item not found\"\n  ]\n}"
+            },
+            {
+              "name": "409 Conflict — question is not a duplicate",
+              "status": "Conflict",
+              "code": 409,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"status\": 409,\n  \"message\": \"CONFLICT\",\n  \"errors\": [\n    \"associated question is not a duplicate\"\n  ]\n}"
+            },
+            {
+              "name": "500 Internal Server Error",
+              "status": "Internal Server Error",
+              "code": 500,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"status\": 500,\n  \"message\": \"INTERNAL_SERVER_ERROR\",\n  \"errors\": [\n    \"failed to discard duplicate item\"\n  ]\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Analytics",
+      "item": [
+        {
+          "name": "Generate AI Angel Report",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const body = JSON.parse(pm.request.body.raw);",
+                  "if (body.sessionId) pm.collectionVariables.set('sessionId', body.sessionId);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"00000000-0000-0000-0000-000000000001\",\n  \"sessionId\": \"session-2024-001\",\n  \"subject\": \"Physics\",\n  \"topic\": \"Newton's Laws of Motion\",\n  \"questionResults\": [\n    {\n      \"questionId\": \"00000000-0000-0000-0000-000000000002\",\n      \"isCorrect\": true,\n      \"timeTakenSeconds\": 45,\n      \"difficulty\": \"Medium\",\n      \"bloomsLevel\": \"Apply\"\n    },\n    {\n      \"questionId\": \"00000000-0000-0000-0000-000000000003\",\n      \"isCorrect\": false,\n      \"timeTakenSeconds\": 90,\n      \"difficulty\": \"High\",\n      \"bloomsLevel\": \"Analyze\"\n    }\n  ],\n  \"cohortAverageScore\": 72,\n  \"historicalScores\": [\n    { \"sessionId\": \"session-2023-050\", \"score\": 65, \"date\": \"2023-12-01\" },\n    { \"sessionId\": \"session-2024-000\", \"score\": 70, \"date\": \"2024-01-15\" }\n  ]\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/analytics/angel",
+              "host": ["{{baseUrl}}"],
+              "path": ["analytics", "angel"]
+            },
+            "description": "Generate and cache an AI Angel analytics report for a student session.\nRepeated calls with the same `sessionId` return the cached result.\n\nThe test script saves `sessionId` into `{{sessionId}}`."
+          },
+          "response": [
+            {
+              "name": "201 Created",
+              "status": "Created",
+              "code": 201,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"progress\": {\n    \"summary\": \"The student has shown steady improvement over the last three sessions, with a score increase from 65 to 70.\",\n    \"trend\": \"improving\",\n    \"details\": [\n      \"Correct answer rate improved from 60% to 75% across sessions\",\n      \"Average time per question reduced from 70s to 52s\"\n    ]\n  },\n  \"strengths\": {\n    \"topics\": [\"Newton's First Law\", \"Free Body Diagrams\"],\n    \"summary\": \"Strong conceptual understanding of inertia and force decomposition.\"\n  },\n  \"weaknesses\": {\n    \"topics\": [\"Newton's Third Law\", \"Friction\"],\n    \"summary\": \"Struggles with action-reaction pairs and friction coefficient calculations.\"\n  },\n  \"cohortComparison\": {\n    \"percentile\": 68,\n    \"summary\": \"Performing above average compared to peers — in the top third of the cohort.\"\n  }\n}"
+            },
+            {
+              "name": "400 Bad Request",
+              "status": "Bad Request",
+              "code": 400,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"status\": 400,\n  \"message\": \"BAD_REQUEST\",\n  \"errors\": [\n    \"questionResults: Array must contain at least 1 element(s)\"\n  ]\n}"
+            },
+            {
+              "name": "500 Internal Server Error",
+              "status": "Internal Server Error",
+              "code": 500,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"status\": 500,\n  \"message\": \"INTERNAL_SERVER_ERROR\",\n  \"errors\": [\n    \"failed to generate angel report\"\n  ]\n}"
+            }
+          ]
+        },
+        {
+          "name": "Get AI Angel Report",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/analytics/angel/{{sessionId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["analytics", "angel", "{{sessionId}}"]
+            },
+            "description": "Retrieve a previously generated and cached AI Angel report by session ID."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"progress\": {\n    \"summary\": \"The student has shown steady improvement over the last three sessions.\",\n    \"trend\": \"improving\",\n    \"details\": [\n      \"Correct answer rate improved from 60% to 75% across sessions\"\n    ]\n  },\n  \"strengths\": {\n    \"topics\": [\"Newton's First Law\"],\n    \"summary\": \"Strong conceptual understanding of inertia.\"\n  },\n  \"weaknesses\": {\n    \"topics\": [\"Friction\"],\n    \"summary\": \"Struggles with friction coefficient calculations.\"\n  },\n  \"cohortComparison\": {\n    \"percentile\": 68,\n    \"summary\": \"Performing above average compared to peers.\"\n  }\n}"
+            },
+            {
+              "name": "404 Not Found",
+              "status": "Not Found",
+              "code": 404,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"status\": 404,\n  \"message\": \"NOT_FOUND\",\n  \"errors\": [\n    \"angel report not found for session\"\n  ]\n}"
+            },
+            {
+              "name": "500 Internal Server Error",
+              "status": "Internal Server Error",
+              "code": 500,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"status\": 500,\n  \"message\": \"INTERNAL_SERVER_ERROR\",\n  \"errors\": [\n    \"failed to retrieve angel report\"\n  ]\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Grounding",
+      "item": [
+        {
+          "name": "Ingest Document",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "description": "PDF file to embed and store as grounding context"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/grounding/ingest?examType=A-Level&subject=Physics&grade=11&questionType=Mcqs",
+              "host": ["{{baseUrl}}"],
+              "path": ["grounding", "ingest"],
+              "query": [
+                { "key": "examType",      "value": "A-Level" },
+                { "key": "subject",       "value": "Physics" },
+                { "key": "grade",         "value": "11" },
+                { "key": "questionType",  "value": "Mcqs", "description": "Mcqs | Short | Comprehensive | Grouped | Closed" }
+              ]
+            },
+            "description": "Upload a PDF. It is chunked, embedded via Azure Ada, and stored in Postgres. Returns a `jobId` immediately — processing is async via the document ingestion worker."
+          },
+          "response": [
+            {
+              "name": "202 Accepted",
+              "status": "Accepted",
+              "code": 202,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"jobId\": \"f7a8b9c0-d1e2-3456-fabc-d01234567890\",\n  \"fileName\": \"physics-textbook-chapter-3.pdf\"\n}"
+            },
+            {
+              "name": "400 Bad Request — missing query param",
+              "status": "Bad Request",
+              "code": 400,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"status\": 400,\n  \"message\": \"BAD_REQUEST\",\n  \"errors\": [\n    \"examType: Required\"\n  ]\n}"
+            },
+            {
+              "name": "422 Unprocessable Entity — invalid file type",
+              "status": "Unprocessable Entity",
+              "code": 422,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"status\": 422,\n  \"message\": \"UNPROCESSABLE_ENTITY\",\n  \"errors\": [\n    \"file is required\"\n  ]\n}"
+            },
+            {
+              "name": "500 Internal Server Error",
+              "status": "Internal Server Error",
+              "code": 500,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"status\": 500,\n  \"message\": \"INTERNAL_SERVER_ERROR\",\n  \"errors\": [\n    \"Failed to enqueue document ingestion job\"\n  ]\n}"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

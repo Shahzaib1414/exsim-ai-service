@@ -3,6 +3,7 @@ import { z } from 'zod';
 export enum EmailTemplate {
   QUESTION_BATCH_SUCCESS = 'question-batch-success',
   QUESTION_BATCH_FAILURE = 'question-batch-failure',
+  QUESTION_BATCH_PENDING_REVIEW = 'question-batch-pending-review',
   DOCUMENT_INGESTION_SUCCESS = 'document-ingestion-success',
   DOCUMENT_INGESTION_FAILURE = 'document-ingestion-failure',
 }

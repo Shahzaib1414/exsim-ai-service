@@ -26,39 +26,18 @@ export type TQuestionBatchMetadata = z.infer<
   typeof QuestionBatchMetadataSchema
 >;
 
-export enum BatchType {
-  BULK = 'BULK',
-  SAMPLE = 'SAMPLE',
-}
-
-export const BatchTypeSchema = z.nativeEnum(BatchType);
-
-export const createQuestionBatchSchema = z
-  .object({
-    examType: z.string().min(1),
-    subject: z.string().min(1),
-    topic: z.string().min(1),
-    difficulty: QuestionDifficultySchema,
-    count: z.number().int().min(0).max(100),
-    grade: z
-      .number()
-      .min(1, { message: 'Grade should not be lower than 1' })
-      .max(12, { message: 'Grade cannot be greater than 12' }),
-    questionType: QuestionTypeSchema.default(QuestionType.Mcqs),
-    batchType: BatchTypeSchema.default(BatchType.BULK),
-  })
-  .superRefine((data, ctx) => {
-    if (data.batchType === BatchType.SAMPLE && data.count > 3) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.too_big,
-        maximum: 3,
-        type: 'number',
-        inclusive: true,
-        message: 'count must be at most 3 for SAMPLE batches',
-        path: ['count'],
-      });
-    }
-  });
+export const createQuestionBatchSchema = z.object({
+  examType: z.string().min(1),
+  subject: z.string().min(1),
+  topic: z.string().min(1),
+  difficulty: QuestionDifficultySchema,
+  count: z.number().int().min(1).max(100),
+  grade: z
+    .number()
+    .min(1, { message: 'Grade should not be lower than 1' })
+    .max(12, { message: 'Grade cannot be greater than 12' }),
+  questionType: QuestionTypeSchema.default(QuestionType.Mcqs),
+});
 
 export type TCreateQuestionBatch = z.infer<typeof createQuestionBatchSchema>;
 
@@ -66,6 +45,7 @@ export const questionBatchItemResponseSchema = z.object({
   id: z.string().uuid(),
   status: QuestionBatchItemStatusSchema,
   questionId: z.string().uuid().nullable(),
+  isSample: z.boolean().default(false),
   attemptCount: z.number(),
   errorMessage: z.string().nullable(),
   promptTokens: z.number().int().default(0),
@@ -77,6 +57,7 @@ export const questionBatchResponseSchema = z.object({
   id: z.string().uuid(),
   metadata: QuestionBatchMetadataSchema,
   requestedCount: z.number(),
+  sampleCount: z.number().int().default(0),
   completedCount: z.number(),
   failedCount: z.number(),
   status: QuestionBatchStatusSchema,
@@ -133,6 +114,11 @@ export type TQuestionBatchItemJobData = {
   grade: number;
   questionType: z.infer<typeof QuestionTypeSchema>;
   negativeExampleIds?: string[];
+};
+
+export type TQuestionBatchSampleCompleteJobData = {
+  batchId: string;
+  user: TAuthUserReq;
 };
 
 export const GenerateOneResultSchema = z.object({

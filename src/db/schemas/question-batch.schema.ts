@@ -7,6 +7,9 @@ import type { TQuestionBatchMetadata } from '@/common/types/question-batch.types
 export const QuestionBatchStatusSchema = z.enum([
   'PENDING',
   'IN_PROGRESS',
+  'PENDING_REVIEW',
+  'APPROVED',
+  'REJECTED',
   'COMPLETED',
   'FAILED',
 ]);
@@ -17,6 +20,7 @@ export const QuestionBatches = pgTable('QuestionBatches', {
   ...baseEntityColumns,
   MetaData: jsonb('MetaData').notNull().$type<TQuestionBatchMetadata>(),
   RequestedCount: integer('RequestedCount').notNull(),
+  SampleCount: integer('SampleCount').notNull().default(0),
   Status: varchar('Status', { length: 20 })
     .notNull()
     .default(QuestionBatchStatus.PENDING)

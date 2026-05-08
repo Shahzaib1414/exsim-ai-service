@@ -25,6 +25,8 @@ import {
   InjectQuestionBatchItemQueue,
   PROCESS_QUESTION_BATCH_ITEM_JOB,
   createMediumFrequencyJobOptions,
+  BatchFlowService,
+  FlowConfigService,
 } from '@/queues';
 import {
   TCreateQuestionBatch,
@@ -48,6 +50,8 @@ export class QuestionBatchService extends BaseService {
     private readonly logger: PinoLogger,
     private readonly metricsService: AppInsightsMetricsService,
     private readonly questionService: QuestionService,
+    private readonly batchFlowService: BatchFlowService,
+    private readonly flowConfigService: FlowConfigService,
   ) {
     super(db);
   }
@@ -56,10 +60,30 @@ export class QuestionBatchService extends BaseService {
     const [inProgress] = await this.db
       .select({ id: QuestionBatches.Id })
       .from(QuestionBatches)
-      .where(eq(QuestionBatches.Status, QuestionBatchStatus.IN_PROGRESS))
+      .where(
+        or(
+          eq(QuestionBatches.Status, QuestionBatchStatus.IN_PROGRESS),
+          eq(QuestionBatches.Status, QuestionBatchStatus.PENDING_REVIEW),
+        ),
+      )
       .limit(1);
 
     if (!inProgress) return ok(undefined);
+
+    // A PENDING_REVIEW batch is intentionally paused — always block.
+    const [pending] = await this.db
+      .select({ id: QuestionBatches.Id })
+      .from(QuestionBatches)
+      .where(eq(QuestionBatches.Status, QuestionBatchStatus.PENDING_REVIEW))
+      .limit(1);
+
+    if (pending) {
+      return err({
+        status: HttpStatus.CONFLICT,
+        message:
+          'A question batch is awaiting review. Approve or reject it before creating a new one.',
+      });
+    }
 
     const { active, waiting, delayed } =
       await this.questionBatchItemQueue.getJobCounts(
@@ -95,28 +119,30 @@ export class QuestionBatchService extends BaseService {
   async createQuestionBatch(
     dto: TCreateQuestionBatch,
     user: TAuthUserReq,
+    file?: Express.Multer.File,
   ): Promise<Result<TQuestionBatchResponse, TErrorResult>> {
     try {
       const activeCheck = await this.resolveActiveBatch();
       if (activeCheck.isErr()) return err(activeCheck.error);
 
-      // Batch row + all item rows are committed atomically.
-      // Queue jobs are added only after the transaction succeeds so we never
-      // enqueue jobs for a batch that was rolled back.
-      const { questionBatchId, items } = await this.db.transaction(
+      const sampleCount = dto.count <= 3 ? 1 : 3;
+      const metadata = {
+        examType: dto.examType,
+        subject: dto.subject,
+        topic: dto.topic,
+        difficulty: dto.difficulty,
+        grade: dto.grade,
+        questionType: dto.questionType,
+      };
+
+      const { questionBatchId, sampleItems } = await this.db.transaction(
         async (tx) => {
           const [batch] = await tx
             .insert(QuestionBatches)
             .values({
-              MetaData: {
-                examType: dto.examType,
-                subject: dto.subject,
-                topic: dto.topic,
-                difficulty: dto.difficulty,
-                grade: dto.grade,
-                questionType: dto.questionType,
-              },
+              MetaData: metadata,
               RequestedCount: dto.count,
+              SampleCount: sampleCount,
               Status: QuestionBatchStatus.IN_PROGRESS,
             })
             .returning();
@@ -124,49 +150,34 @@ export class QuestionBatchService extends BaseService {
           const insertedItems = await tx
             .insert(QuestionBatchItems)
             .values(
-              Array.from({ length: dto.count }, () => ({
+              Array.from({ length: sampleCount }, () => ({
                 QuestionBatchId: batch.Id,
                 Status: QuestionBatchItemStatus.PENDING,
+                IsSample: true,
                 AttemptCount: 0,
               })),
             )
             .returning();
 
-          return { questionBatchId: batch.Id, items: insertedItems };
+          return { questionBatchId: batch.Id, sampleItems: insertedItems };
         },
       );
 
-      await Promise.all(
-        items.map((item) =>
-          this.questionBatchItemQueue.add(
-            PROCESS_QUESTION_BATCH_ITEM_JOB,
-            {
-              questionBatchItemId: item.Id,
-              questionBatchId,
-              examType: dto.examType,
-              subject: dto.subject,
-              topic: dto.topic,
-              difficulty: dto.difficulty,
-              grade: dto.grade,
-              questionType: dto.questionType,
-              user,
-            },
-            createMediumFrequencyJobOptions(item.Id),
-          ),
-        ),
-      );
+      const flowJob = this.flowConfigService.buildSamplePhaseFlow({
+        batchId: questionBatchId,
+        user,
+        sampleItems,
+        metadata,
+        file,
+      });
+
+      await this.batchFlowService.add(flowJob);
 
       return ok({
         id: questionBatchId,
-        metadata: {
-          examType: dto.examType,
-          subject: dto.subject,
-          topic: dto.topic,
-          difficulty: dto.difficulty,
-          grade: dto.grade,
-          questionType: dto.questionType,
-        },
+        metadata,
         requestedCount: dto.count,
+        sampleCount,
         completedCount: 0,
         failedCount: 0,
         status: QuestionBatchStatus.IN_PROGRESS,
@@ -183,6 +194,251 @@ export class QuestionBatchService extends BaseService {
       return err({
         status: HttpStatus.INTERNAL_SERVER_ERROR,
         message: 'failed to create question batch',
+      });
+    }
+  }
+
+  async approveQuestionBatch(
+    batchId: string,
+    user: TAuthUserReq,
+  ): Promise<Result<TQuestionBatchResponse, TErrorResult>> {
+    try {
+      const batchRows = await this.db
+        .select()
+        .from(QuestionBatches)
+        .where(eq(QuestionBatches.Id, batchId));
+      const batch = batchRows[0];
+
+      if (!batch) {
+        return err({
+          status: HttpStatus.NOT_FOUND,
+          message: 'batch not found',
+        });
+      }
+
+      if (batch.Status !== QuestionBatchStatus.PENDING_REVIEW) {
+        return err({
+          status: HttpStatus.CONFLICT,
+          message: `Batch cannot be approved — current status is ${batch.Status}`,
+        });
+      }
+
+      const remainder = batch.RequestedCount - batch.SampleCount;
+
+      if (remainder === 0) {
+        // All items were samples; nothing left to generate — complete immediately.
+        await this.updateIn(QuestionBatches, eq(QuestionBatches.Id, batchId), {
+          Status: QuestionBatchStatus.COMPLETED,
+        });
+
+        const updatedBatch = {
+          ...batch,
+          Status: QuestionBatchStatus.COMPLETED,
+        };
+        const items = await this.db
+          .select()
+          .from(QuestionBatchItems)
+          .where(eq(QuestionBatchItems.QuestionBatchId, batchId));
+
+        return ok(
+          this.toQuestionBatchResponse(
+            updatedBatch as TQuestionBatchSelect,
+            items,
+          ),
+        );
+      }
+
+      // Transition to IN_PROGRESS and create remainder items atomically.
+      const { remainderItems } = await this.db.transaction(async (tx) => {
+        await tx
+          .update(QuestionBatches)
+          .set({ Status: QuestionBatchStatus.IN_PROGRESS })
+          .where(eq(QuestionBatches.Id, batchId));
+
+        const inserted = await tx
+          .insert(QuestionBatchItems)
+          .values(
+            Array.from({ length: remainder }, () => ({
+              QuestionBatchId: batchId,
+              Status: QuestionBatchItemStatus.PENDING,
+              IsSample: false,
+              AttemptCount: 0,
+            })),
+          )
+          .returning();
+
+        return { remainderItems: inserted };
+      });
+
+      // Enqueue each remainder item individually (no flow needed).
+      await Promise.all(
+        remainderItems.map((item) =>
+          this.questionBatchItemQueue.add(
+            PROCESS_QUESTION_BATCH_ITEM_JOB,
+            {
+              questionBatchItemId: item.Id,
+              questionBatchId: batchId,
+              examType: batch.MetaData.examType,
+              subject: batch.MetaData.subject,
+              topic: batch.MetaData.topic,
+              difficulty: batch.MetaData.difficulty,
+              grade: batch.MetaData.grade,
+              questionType: batch.MetaData.questionType,
+              user,
+            },
+            createMediumFrequencyJobOptions(item.Id),
+          ),
+        ),
+      );
+
+      const allItems = await this.db
+        .select()
+        .from(QuestionBatchItems)
+        .where(eq(QuestionBatchItems.QuestionBatchId, batchId));
+
+      const updatedBatch = {
+        ...batch,
+        Status: QuestionBatchStatus.IN_PROGRESS,
+      };
+      return ok(
+        this.toQuestionBatchResponse(
+          updatedBatch as TQuestionBatchSelect,
+          allItems,
+        ),
+      );
+    } catch (error) {
+      this.logger.error({
+        message: 'Failed to approve question batch',
+        data: { batchId, error: serializeError(error) },
+      });
+      return err({
+        status: HttpStatus.INTERNAL_SERVER_ERROR,
+        message: 'failed to approve question batch',
+      });
+    }
+  }
+
+  async rejectQuestionBatch(
+    batchId: string,
+  ): Promise<Result<void, TErrorResult>> {
+    try {
+      const batchRows = await this.db
+        .select()
+        .from(QuestionBatches)
+        .where(eq(QuestionBatches.Id, batchId));
+      const batch = batchRows[0];
+
+      if (!batch) {
+        return err({
+          status: HttpStatus.NOT_FOUND,
+          message: 'batch not found',
+        });
+      }
+
+      if (batch.Status !== QuestionBatchStatus.PENDING_REVIEW) {
+        return err({
+          status: HttpStatus.CONFLICT,
+          message: `Batch cannot be rejected — current status is ${batch.Status}`,
+        });
+      }
+
+      // Delete generated sample questions.
+      const sampleItems = await this.db
+        .select()
+        .from(QuestionBatchItems)
+        .where(
+          and(
+            eq(QuestionBatchItems.QuestionBatchId, batchId),
+            eq(QuestionBatchItems.IsSample, true),
+          ),
+        );
+
+      for (const item of sampleItems) {
+        if (item.QuestionId) {
+          const deleteResult = await this.questionService.deleteQuestion(
+            item.QuestionId,
+          );
+          if (deleteResult.isErr()) {
+            this.logger.warn({
+              message: 'Failed to delete sample question during rejection',
+              data: {
+                questionId: item.QuestionId,
+                error: deleteResult.error.message,
+              },
+            });
+          }
+        }
+      }
+
+      await this.db
+        .delete(QuestionBatchItems)
+        .where(eq(QuestionBatchItems.QuestionBatchId, batchId));
+
+      await this.updateIn(QuestionBatches, eq(QuestionBatches.Id, batchId), {
+        Status: QuestionBatchStatus.REJECTED,
+      });
+
+      return ok(undefined);
+    } catch (error) {
+      this.logger.error({
+        message: 'Failed to reject question batch',
+        data: { batchId, error: serializeError(error) },
+      });
+      return err({
+        status: HttpStatus.INTERNAL_SERVER_ERROR,
+        message: 'failed to reject question batch',
+      });
+    }
+  }
+
+  async getSampleItems(
+    batchId: string,
+  ): Promise<Result<TQuestionBatchItemSelect[], TErrorResult>> {
+    try {
+      const items = await this.db
+        .select()
+        .from(QuestionBatchItems)
+        .where(
+          and(
+            eq(QuestionBatchItems.QuestionBatchId, batchId),
+            eq(QuestionBatchItems.IsSample, true),
+          ),
+        );
+      return ok(items);
+    } catch (error) {
+      return err({
+        status: HttpStatus.INTERNAL_SERVER_ERROR,
+        message: 'failed to fetch sample items',
+      });
+    }
+  }
+
+  async markBatchPendingReview(
+    batchId: string,
+  ): Promise<Result<void, TErrorResult>> {
+    try {
+      await this.updateIn(QuestionBatches, eq(QuestionBatches.Id, batchId), {
+        Status: QuestionBatchStatus.PENDING_REVIEW,
+      });
+      return ok(undefined);
+    } catch (error) {
+      return err({
+        status: HttpStatus.INTERNAL_SERVER_ERROR,
+        message: 'failed to mark batch PENDING_REVIEW',
+      });
+    }
+  }
+
+  async markBatchFailed(batchId: string): Promise<Result<void, TErrorResult>> {
+    try {
+      await this.updateIn(QuestionBatches, eq(QuestionBatches.Id, batchId), {
+        Status: QuestionBatchStatus.FAILED,
+      });
+      return ok(undefined);
+    } catch (error) {
+      return err({
+        status: HttpStatus.INTERNAL_SERVER_ERROR,
+        message: 'failed to mark batch FAILED',
       });
     }
   }
@@ -275,8 +531,6 @@ export class QuestionBatchService extends BaseService {
       if (paginated.items.length === 0)
         return ok({ items: [], meta: paginated.meta });
 
-      // Fetch all items for the current page in a single query, then group in
-      // memory — eliminates the N+1 pattern of one query per batch row.
       const batchIds = paginated.items.map((b) => b.Id);
       const allItems = await this.db
         .select()
@@ -450,6 +704,11 @@ export class QuestionBatchService extends BaseService {
         .from(QuestionBatchItems)
         .where(eq(QuestionBatchItems.QuestionBatchId, batchId));
 
+      // Pre-approval phase: only sample items exist.
+      // The sample-complete worker handles the PENDING_REVIEW transition — skip here.
+      const hasRemainderItems = items.some((i) => !i.IsSample);
+      if (!hasRemainderItems) return ok(undefined);
+
       const allTerminal = items.every(
         (i) =>
           i.Status === QuestionBatchItemStatus.COMPLETED ||
@@ -511,6 +770,7 @@ export class QuestionBatchService extends BaseService {
       id: batch.Id,
       metadata: batch.MetaData,
       requestedCount: batch.RequestedCount,
+      sampleCount: batch.SampleCount,
       completedCount: items.filter(
         (i) => i.Status === QuestionBatchItemStatus.COMPLETED,
       ).length,
@@ -668,6 +928,7 @@ export class QuestionBatchService extends BaseService {
       id: item.Id,
       status: item.Status,
       questionId: item.QuestionId ?? null,
+      isSample: item.IsSample,
       attemptCount: item.AttemptCount,
       errorMessage: item.ErrorMessage ?? null,
       promptTokens: item.PromptTokens,

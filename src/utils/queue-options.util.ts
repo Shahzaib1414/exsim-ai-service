@@ -20,3 +20,12 @@ export function createHighFrequencyJobOptions(jobId?: string): JobsOptions {
     removeOnFail: 25,
   };
 }
+
+export function createLowFrequencyJobOptions(jobId?: string): JobsOptions {
+  return {
+    jobId: jobId ?? randomUUID(),
+    attempts: 1,
+    removeOnComplete: 25,
+    removeOnFail: 15,
+  };
+}

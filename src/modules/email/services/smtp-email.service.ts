@@ -116,6 +116,10 @@ export class SmtpEmailService extends EmailService implements OnModuleInit {
       [EmailTemplate.QUESTION_BATCH_SUCCESS, 'question-batch-success.hbs'],
       [EmailTemplate.QUESTION_BATCH_FAILURE, 'question-batch-failure.hbs'],
       [
+        EmailTemplate.QUESTION_BATCH_PENDING_REVIEW,
+        'question-batch-pending-review.hbs',
+      ],
+      [
         EmailTemplate.DOCUMENT_INGESTION_SUCCESS,
         'document-ingestion-success.hbs',
       ],

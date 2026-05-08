@@ -22,13 +22,18 @@ const c = initContract();
 export const questionBatchContract = c.router(
   {
     createQuestionBatch: {
-      summary: 'Create a question batch and enqueue generation jobs',
+      summary:
+        'Create a question batch — generates sample questions first, then awaits review',
       method: 'POST',
       path: '/',
-      body: createQuestionBatchSchema,
+      contentType: 'multipart/form-data',
+      body: c.type<
+        { file?: File } & z.infer<typeof createQuestionBatchSchema>
+      >(),
       responses: {
         201: questionBatchResponseSchema,
         400: BadRequestError,
+        409: ConflictError,
         500: InternalError,
       },
     },
@@ -60,6 +65,32 @@ export const questionBatchContract = c.router(
       responses: {
         200: questionBatchWithItemsResponseSchema,
         404: NotFoundError,
+        500: InternalError,
+      },
+    },
+    approveQuestionBatch: {
+      summary:
+        'Approve a PENDING_REVIEW batch — enqueues remainder question generation',
+      method: 'POST',
+      path: '/:id/approve',
+      body: z.object({}),
+      responses: {
+        200: questionBatchResponseSchema,
+        404: NotFoundError,
+        409: ConflictError,
+        500: InternalError,
+      },
+    },
+    rejectQuestionBatch: {
+      summary:
+        'Reject a PENDING_REVIEW batch — deletes sample questions, marks batch REJECTED',
+      method: 'POST',
+      path: '/:id/reject',
+      body: z.object({}),
+      responses: {
+        204: z.object({}),
+        404: NotFoundError,
+        409: ConflictError,
         500: InternalError,
       },
     },
