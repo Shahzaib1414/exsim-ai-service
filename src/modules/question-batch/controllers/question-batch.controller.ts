@@ -86,7 +86,7 @@ export class QuestionBatchController {
       async ({ params, query }) => {
         const result = await this.questionBatchService.getQuestionBatchItems(
           params.id,
-          query.status,
+          query,
         );
         if (result.isErr()) return toErrorResponse(result.error);
         return { status: HttpStatus.OK, body: result.value };

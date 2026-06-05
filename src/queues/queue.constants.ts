@@ -10,3 +10,6 @@ export const DOCUMENT_INGESTION_QUEUE = 'document-ingestion';
 export const PROCESS_DOCUMENT_INGESTION_JOB = 'process-document-ingestion';
 
 export const BATCH_FLOW_PRODUCER_NAME = 'batch-flow-producer';
+
+export const AI_ANGEL_REPORT_QUEUE = 'ai-angel-report';
+export const PROCESS_AI_ANGEL_REPORT_JOB = 'process-ai-angel-report';

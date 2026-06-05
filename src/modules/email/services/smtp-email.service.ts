@@ -127,6 +127,8 @@ export class SmtpEmailService extends EmailService implements OnModuleInit {
         EmailTemplate.DOCUMENT_INGESTION_FAILURE,
         'document-ingestion-failure.hbs',
       ],
+      [EmailTemplate.AI_ANGEL_REPORT_SUCCESS, 'ai-angel-report-success.hbs'],
+      [EmailTemplate.AI_ANGEL_REPORT_FAILURE, 'ai-angel-report-failure.hbs'],
     ];
 
     for (const [key, filename] of entries) {

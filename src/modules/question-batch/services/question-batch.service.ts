@@ -1,6 +1,6 @@
 import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { Queue } from 'bullmq';
-import { eq, and, or, inArray, sql } from 'drizzle-orm';
+import { eq, and, or, inArray, sql, desc } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import { err, ok, Result } from 'neverthrow';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
@@ -13,6 +13,9 @@ import {
   QuestionBatchStatus,
   TQuestionBatchSelect,
 } from '@/db/schemas/question-batch.schema';
+import { Questions } from '@/db/schemas/question.schema';
+import { questionOptions } from '@/db/schemas/question-option.schema';
+import { questionTags } from '@/db/schemas/question-tag.schema';
 import {
   QuestionBatchItems,
   QuestionBatchItemStatus,
@@ -31,12 +34,15 @@ import {
 import {
   TCreateQuestionBatch,
   TQuestionBatchResponse,
-  TQuestionBatchWithItemsResponse,
   TQuestionBatchItemJobData,
   TQuestionBatchItemResponse,
   TQuestionBatchPaginatedResponse,
   TQuestionBatchesFilter,
+  TQuestionBatchItemsPaginatedResponse,
+  TQuestionBatchItemWithQuestionResponse,
 } from '@/common/types';
+import type { z } from 'zod';
+import type { getQuestionBatchItemsQuerySchema } from '@/common/types';
 import { AppInsightsMetricsService } from '@/common/services';
 import { QuestionService } from '@/modules/question/services/question.service';
 
@@ -133,6 +139,7 @@ export class QuestionBatchService extends BaseService {
         difficulty: dto.difficulty,
         grade: dto.grade,
         questionType: dto.questionType,
+        batchType: dto.batchType,
       };
 
       const { questionBatchId, sampleItems } = await this.db.transaction(
@@ -176,6 +183,7 @@ export class QuestionBatchService extends BaseService {
       return ok({
         id: questionBatchId,
         metadata,
+        batchType: dto.batchType,
         requestedCount: dto.count,
         sampleCount,
         completedCount: 0,
@@ -284,6 +292,7 @@ export class QuestionBatchService extends BaseService {
               difficulty: batch.MetaData.difficulty,
               grade: batch.MetaData.grade,
               questionType: batch.MetaData.questionType,
+              batchType: batch.MetaData.batchType,
               user,
             },
             createMediumFrequencyJobOptions(item.Id),
@@ -522,6 +531,7 @@ export class QuestionBatchService extends BaseService {
           .select()
           .from(QuestionBatches)
           .where(where)
+          .orderBy(desc(QuestionBatches.Created))
           .limit(limit)
           .offset((page - 1) * limit),
         this.countIn(QuestionBatches, where),
@@ -564,37 +574,131 @@ export class QuestionBatchService extends BaseService {
 
   async getQuestionBatchItems(
     batchId: string,
-    statusFilter?: TQuestionBatchItemSelect['Status'],
-  ): Promise<Result<TQuestionBatchWithItemsResponse, TErrorResult>> {
+    query: z.infer<typeof getQuestionBatchItemsQuerySchema>,
+  ): Promise<Result<TQuestionBatchItemsPaginatedResponse, TErrorResult>> {
     try {
-      const batches = await this.db
-        .select()
+      const batchRows = await this.db
+        .select({ id: QuestionBatches.Id })
         .from(QuestionBatches)
-        .where(eq(QuestionBatches.Id, batchId));
-      const batch = batches[0];
+        .where(eq(QuestionBatches.Id, batchId))
+        .limit(1);
 
-      if (!batch) {
+      if (!batchRows[0]) {
         return err({
           status: HttpStatus.NOT_FOUND,
           message: 'batch not found',
         });
       }
 
-      const whereClause = statusFilter
+      const { page, limit, status } = query;
+
+      const whereClause = status
         ? and(
             eq(QuestionBatchItems.QuestionBatchId, batchId),
-            eq(QuestionBatchItems.Status, statusFilter),
+            eq(QuestionBatchItems.Status, status),
           )
         : eq(QuestionBatchItems.QuestionBatchId, batchId);
 
-      const items = await this.db
-        .select()
-        .from(QuestionBatchItems)
-        .where(whereClause);
+      const paginated = await this.paginate(
+        this.db
+          .select()
+          .from(QuestionBatchItems)
+          .where(whereClause)
+          .orderBy(desc(QuestionBatchItems.Created))
+          .limit(limit)
+          .offset((page - 1) * limit),
+        this.countIn(QuestionBatchItems, whereClause),
+        { page, limit },
+      );
+
+      const questionIds = paginated.items
+        .map((i) => i.QuestionId)
+        .filter((id): id is string => id != null);
+
+      const [questions, childQuestions, options, tags] =
+        questionIds.length > 0
+          ? await Promise.all([
+              this.db
+                .select()
+                .from(Questions)
+                .where(inArray(Questions.Id, questionIds)),
+              this.db
+                .select()
+                .from(Questions)
+                .where(inArray(Questions.ParentQuestionId, questionIds)),
+              this.db
+                .select()
+                .from(questionOptions)
+                .where(inArray(questionOptions.QuestionId, questionIds)),
+              this.db
+                .select()
+                .from(questionTags)
+                .where(inArray(questionTags.QuestionId, questionIds)),
+            ])
+          : [[], [], [], []];
+
+      // After we know child question IDs, fetch their options and tags too
+      const childQuestionIds = childQuestions.map((c) => c.Id);
+      const [childOptions, childTags] =
+        childQuestionIds.length > 0
+          ? await Promise.all([
+              this.db
+                .select()
+                .from(questionOptions)
+                .where(inArray(questionOptions.QuestionId, childQuestionIds)),
+              this.db
+                .select()
+                .from(questionTags)
+                .where(inArray(questionTags.QuestionId, childQuestionIds)),
+            ])
+          : [[], []];
+
+      const questionMap = new Map(questions.map((q) => [q.Id, q]));
+
+      // Children keyed by their ParentQuestionId
+      const childrenByParent = new Map<
+        string,
+        (typeof Questions.$inferSelect)[]
+      >();
+      for (const child of childQuestions) {
+        if (!child.ParentQuestionId) continue;
+        const list = childrenByParent.get(child.ParentQuestionId) ?? [];
+        list.push(child);
+        childrenByParent.set(child.ParentQuestionId, list);
+      }
+
+      // Options and tags for all questions (parent + child) keyed by question ID
+      const optionsByQuestion = new Map<
+        string,
+        (typeof questionOptions.$inferSelect)[]
+      >();
+      const tagsByQuestion = new Map<
+        string,
+        (typeof questionTags.$inferSelect)[]
+      >();
+
+      for (const opt of [...options, ...childOptions]) {
+        const list = optionsByQuestion.get(opt.QuestionId) ?? [];
+        list.push(opt);
+        optionsByQuestion.set(opt.QuestionId, list);
+      }
+      for (const tag of [...tags, ...childTags]) {
+        const list = tagsByQuestion.get(tag.QuestionId) ?? [];
+        list.push(tag);
+        tagsByQuestion.set(tag.QuestionId, list);
+      }
 
       return ok({
-        ...this.toQuestionBatchResponse(batch, items),
-        items: items.map((item) => this.toQuestionBatchItemResponse(item)),
+        items: paginated.items.map((item) =>
+          this.toItemWithQuestion(
+            item,
+            questionMap,
+            childrenByParent,
+            optionsByQuestion,
+            tagsByQuestion,
+          ),
+        ),
+        meta: paginated.meta,
       });
     } catch (error) {
       this.logger.error({
@@ -699,30 +803,53 @@ export class QuestionBatchService extends BaseService {
     batchId: string,
   ): Promise<Result<void, TErrorResult>> {
     try {
+      const batchRows = await this.db
+        .select()
+        .from(QuestionBatches)
+        .where(eq(QuestionBatches.Id, batchId));
+      const batch = batchRows[0];
+
+      if (!batch) {
+        return err({
+          status: HttpStatus.NOT_FOUND,
+          message: 'Question batch not found',
+        });
+      }
+
+      if (batch.Status !== QuestionBatchStatus.IN_PROGRESS) {
+        return ok(undefined);
+      }
+
       const items = await this.db
         .select()
         .from(QuestionBatchItems)
         .where(eq(QuestionBatchItems.QuestionBatchId, batchId));
 
-      // Pre-approval phase: only sample items exist.
-      // The sample-complete worker handles the PENDING_REVIEW transition — skip here.
-      const hasRemainderItems = items.some((i) => !i.IsSample);
-      if (!hasRemainderItems) return ok(undefined);
-
-      const allTerminal = items.every(
-        (i) =>
-          i.Status === QuestionBatchItemStatus.COMPLETED ||
-          i.Status === QuestionBatchItemStatus.FAILED,
+      // Some items are still being processed — not ready to finalize.
+      const hasPendingItems = items.some(
+        (i) => i.Status === QuestionBatchItemStatus.PENDING,
       );
-
-      if (!allTerminal) return ok(undefined);
+      if (hasPendingItems) return ok(undefined);
 
       const anyFailed = items.some(
         (i) => i.Status === QuestionBatchItemStatus.FAILED,
       );
+
+      const anyPending = items.some(
+        (i) => i.Status === QuestionBatchItemStatus.PENDING,
+      );
+
+      // Pre-approval phase: only sample items exist.
+      // The sample-complete worker handles the PENDING_REVIEW transition — skip here.
+      const hasRemainderItems = items.some((i) => !i.IsSample);
+
       const newStatus = anyFailed
         ? QuestionBatchStatus.FAILED
-        : QuestionBatchStatus.COMPLETED;
+        : anyPending
+          ? QuestionBatchStatus.IN_PROGRESS
+          : !hasRemainderItems
+            ? QuestionBatchStatus.PENDING_REVIEW
+            : QuestionBatchStatus.COMPLETED;
 
       const pt = items.reduce((acc, i) => acc + (i.PromptTokens ?? 0), 0);
       const ct = items.reduce((acc, i) => acc + (i.CompletionTokens ?? 0), 0);
@@ -769,6 +896,7 @@ export class QuestionBatchService extends BaseService {
     return {
       id: batch.Id,
       metadata: batch.MetaData,
+      batchType: batch.MetaData.batchType,
       requestedCount: batch.RequestedCount,
       sampleCount: batch.SampleCount,
       completedCount: items.filter(
@@ -790,6 +918,8 @@ export class QuestionBatchService extends BaseService {
     user: TAuthUserReq,
   ): Promise<Result<TQuestionBatchItemResponse, TErrorResult>> {
     try {
+      let negativeExampleIds: string[] = [];
+
       const item = await this.db.query.QuestionBatchItems.findFirst({
         where: eq(QuestionBatchItems.Id, itemId),
         with: { question: true, batch: true },
@@ -802,10 +932,18 @@ export class QuestionBatchService extends BaseService {
         });
       }
 
-      if (!item.question || item.question.Status !== QuestionStatus.Duplicate) {
+      if (
+        !(
+          [
+            QuestionBatchItemStatus.FAILED,
+            QuestionBatchItemStatus.NEEDS_REVIEW,
+          ] as string[]
+        ).includes(item.Status)
+      ) {
         return err({
           status: HttpStatus.CONFLICT,
-          message: 'associated question is not a duplicate',
+          message:
+            'batch item status needs to be either Failed or needs review to retry',
         });
       }
 
@@ -816,14 +954,16 @@ export class QuestionBatchService extends BaseService {
         });
       }
 
-      const negativeExampleIds = item.question.DuplicateQuestionIds
-        ? item.question.DuplicateQuestionIds.split(',').filter(Boolean)
-        : [];
+      if (item.question) {
+        negativeExampleIds = item.question.DuplicateQuestionIds
+          ? item.question.DuplicateQuestionIds.split(',').filter(Boolean)
+          : [];
 
-      const deleteResult = await this.questionService.deleteQuestion(
-        item.question.Id,
-      );
-      if (deleteResult.isErr()) return err(deleteResult.error);
+        const deleteResult = await this.questionService.deleteQuestion(
+          item.question.Id,
+        );
+        if (deleteResult.isErr()) return err(deleteResult.error);
+      }
 
       await this.updateIn(
         QuestionBatchItems,
@@ -835,6 +975,14 @@ export class QuestionBatchService extends BaseService {
           PromptTokens: 0,
           CompletionTokens: 0,
           TotalTokens: 0,
+        },
+      );
+
+      await this.updateIn(
+        QuestionBatches,
+        eq(QuestionBatches.Id, item.QuestionBatchId),
+        {
+          Status: QuestionBatchStatus.IN_PROGRESS,
         },
       );
 
@@ -852,10 +1000,11 @@ export class QuestionBatchService extends BaseService {
           difficulty,
           grade,
           questionType,
+          batchType: item.batch.MetaData.batchType,
           negativeExampleIds,
           user,
         },
-        createMediumFrequencyJobOptions(itemId),
+        createMediumFrequencyJobOptions(),
       );
 
       const updatedRows = await this.db
@@ -892,17 +1041,19 @@ export class QuestionBatchService extends BaseService {
         });
       }
 
-      if (!item.question || item.question.Status !== QuestionStatus.Duplicate) {
-        return err({
-          status: HttpStatus.CONFLICT,
-          message: 'associated question is not a duplicate',
-        });
-      }
+      if (item.question) {
+        if (item.question.Status !== QuestionStatus.Duplicate) {
+          return err({
+            status: HttpStatus.CONFLICT,
+            message: 'associated question is not a duplicate',
+          });
+        }
 
-      const deleteResult = await this.questionService.deleteQuestion(
-        item.question.Id,
-      );
-      if (deleteResult.isErr()) return err(deleteResult.error);
+        const deleteResult = await this.questionService.deleteQuestion(
+          item.question.Id,
+        );
+        if (deleteResult.isErr()) return err(deleteResult.error);
+      }
 
       await this.db
         .delete(QuestionBatchItems)
@@ -921,6 +1072,54 @@ export class QuestionBatchService extends BaseService {
         message: 'failed to discard duplicate item',
       });
     }
+  }
+
+  private toItemWithQuestion(
+    item: TQuestionBatchItemSelect,
+    questionMap: Map<string, typeof Questions.$inferSelect>,
+    childrenByParent: Map<string, (typeof Questions.$inferSelect)[]>,
+    optionsByQuestion: Map<string, (typeof questionOptions.$inferSelect)[]>,
+    tagsByQuestion: Map<string, (typeof questionTags.$inferSelect)[]>,
+  ): TQuestionBatchItemWithQuestionResponse {
+    const q = item.QuestionId ? questionMap.get(item.QuestionId) : null;
+
+    const mapQuestion = (row: typeof Questions.$inferSelect) => ({
+      id: row.Id,
+      statement: row.Statement,
+      solution: row.Solution,
+      imageUrl: row.ImageUrl ?? null,
+      options: (optionsByQuestion.get(row.Id) ?? [])
+        .sort((a, b) => a.Position - b.Position)
+        .map((o) => ({
+          id: o.Id,
+          option: o.Option,
+          isCorrect: o.IsCorrect,
+          position: o.Position,
+        })),
+      tags: (tagsByQuestion.get(row.Id) ?? []).map((t) => ({
+        id: t.Id,
+        name: t.Name,
+        value: t.Value,
+      })),
+    });
+
+    return {
+      id: item.Id,
+      status: item.Status,
+      questionId: item.QuestionId ?? null,
+      isSample: item.IsSample,
+      attemptCount: item.AttemptCount,
+      errorMessage: item.ErrorMessage ?? null,
+      promptTokens: item.PromptTokens,
+      completionTokens: item.CompletionTokens,
+      totalTokens: item.TotalTokens,
+      question: q
+        ? {
+            ...mapQuestion(q),
+            childQuestions: (childrenByParent.get(q.Id) ?? []).map(mapQuestion),
+          }
+        : null,
+    };
   }
 
   private toQuestionBatchItemResponse(item: TQuestionBatchItemSelect) {

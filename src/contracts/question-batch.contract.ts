@@ -4,11 +4,11 @@ import { z } from 'zod';
 import {
   questionBatchResponseSchema,
   questionBatchItemResponseSchema,
-  questionBatchWithItemsResponseSchema,
   createQuestionBatchSchema,
   getQuestionBatchItemsQuerySchema,
   QuestionBatchesFilterZod,
   QuestionBatchPaginatedResponseSchema,
+  QuestionBatchItemsPaginatedResponseSchema,
 } from '@/common/types';
 import {
   BadRequestError,
@@ -58,12 +58,12 @@ export const questionBatchContract = c.router(
       },
     },
     getQuestionBatchItems: {
-      summary: 'Get items in a question batch, optionally filtered by status',
+      summary: 'Get paginated items for a batch, each with its question data',
       method: 'GET',
       path: '/:id/items',
       query: getQuestionBatchItemsQuerySchema,
       responses: {
-        200: questionBatchWithItemsResponseSchema,
+        200: QuestionBatchItemsPaginatedResponseSchema,
         404: NotFoundError,
         500: InternalError,
       },
@@ -111,7 +111,6 @@ export const questionBatchContract = c.router(
       summary: 'Delete the duplicate question and its batch item',
       method: 'DELETE',
       path: '/items/:itemId',
-      body: z.object({}),
       responses: {
         204: z.object({}),
         404: NotFoundError,

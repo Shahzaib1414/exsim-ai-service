@@ -1,14 +1,11 @@
 import { Controller, HttpStatus } from '@nestjs/common';
 import { TsRestHandler, tsRestHandler } from '@ts-rest/nest';
+import { ServerInferRequest } from '@ts-rest/core';
 
 import { analyticsContract } from '@/contracts';
-import { AnalyticsService } from '../services/analytics.service';
-import { ServerInferRequest } from '@ts-rest/core';
 import { toErrorResponse } from '@/utils';
+import { AnalyticsService } from '../services/analytics.service';
 
-type GenerateAngelReport = ServerInferRequest<
-  typeof analyticsContract.generateAngelReport
->;
 type GetAngelReport = ServerInferRequest<
   typeof analyticsContract.getAngelReport
 >;
@@ -17,16 +14,13 @@ type GetAngelReport = ServerInferRequest<
 export class AnalyticsController {
   constructor(private readonly analyticsService: AnalyticsService) {}
 
-  @TsRestHandler(analyticsContract.generateAngelReport)
-  generateAngelReport() {
-    return tsRestHandler(
-      analyticsContract.generateAngelReport,
-      async ({ body }: GenerateAngelReport) => {
-        const result = await this.analyticsService.generateAngelReport(body);
-        if (result.isErr()) return toErrorResponse(result.error);
-        return { status: HttpStatus.CREATED, body: result.value };
-      },
-    );
+  @TsRestHandler(analyticsContract.requestAngelReport)
+  requestAngelReport() {
+    return tsRestHandler(analyticsContract.requestAngelReport, async () => {
+      const result = await this.analyticsService.requestReport();
+      if (result.isErr()) return toErrorResponse(result.error);
+      return { status: HttpStatus.CREATED, body: result.value };
+    });
   }
 
   @TsRestHandler(analyticsContract.getAngelReport)

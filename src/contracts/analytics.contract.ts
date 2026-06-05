@@ -1,12 +1,13 @@
 import { initContract } from '@ts-rest/core';
 
 import {
-  AiAngelReportSchema,
-  GenerateAngelReportBodySchema,
+  AiAngelReportResponseSchema,
   GetAngelReportParamsSchema,
+  RequestAngelReportResponseSchema,
 } from '@/common/types';
 import {
-  BadRequestError,
+  ConflictError,
+  ForbiddenError,
   InternalError,
   NotFoundError,
 } from '@/common/types/error-responses.type';
@@ -15,25 +16,28 @@ const c = initContract();
 
 export const analyticsContract = c.router(
   {
-    generateAngelReport: {
-      summary: 'Generate an AI Angel analytics report for a student session',
+    requestAngelReport: {
+      summary:
+        'Request an async AI Angel analytics report for the latest completed session',
       method: 'POST',
-      path: '/angel',
-      body: GenerateAngelReportBodySchema,
+      path: '/reports',
+      body: c.noBody(),
       responses: {
-        201: AiAngelReportSchema,
-        400: BadRequestError,
+        201: RequestAngelReportResponseSchema,
+        409: ConflictError,
+        404: NotFoundError,
         500: InternalError,
       },
     },
     getAngelReport: {
-      summary: 'Retrieve a cached AI Angel report by session ID',
+      summary: 'Get an AI Angel analytics report by ID',
       method: 'GET',
-      path: '/angel/:sessionId',
+      path: '/reports/:sessionId',
       pathParams: GetAngelReportParamsSchema,
       responses: {
-        200: AiAngelReportSchema,
+        200: AiAngelReportResponseSchema,
         404: NotFoundError,
+        403: ForbiddenError,
         500: InternalError,
       },
     },

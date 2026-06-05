@@ -38,6 +38,7 @@ export class QuestionBatchWorker extends BaseWorker {
       difficulty,
       grade,
       questionType,
+      batchType,
       negativeExampleIds = [],
     } = job.data;
     const logContext = {
@@ -110,6 +111,7 @@ export class QuestionBatchWorker extends BaseWorker {
         difficulty,
         grade,
         questionType,
+        batchType,
         negativeExamples,
         trace,
       });
@@ -133,6 +135,9 @@ export class QuestionBatchWorker extends BaseWorker {
         this.metricsService.trackBatchItemFailure(
           questionBatchId,
           result.error.message,
+        );
+        await this.questionBatchService.updateQuestionBatchStatus(
+          questionBatchId,
         );
         throw new Error(result.error.message);
       }

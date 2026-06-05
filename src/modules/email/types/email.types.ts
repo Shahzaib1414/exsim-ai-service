@@ -6,6 +6,8 @@ export enum EmailTemplate {
   QUESTION_BATCH_PENDING_REVIEW = 'question-batch-pending-review',
   DOCUMENT_INGESTION_SUCCESS = 'document-ingestion-success',
   DOCUMENT_INGESTION_FAILURE = 'document-ingestion-failure',
+  AI_ANGEL_REPORT_SUCCESS = 'ai-angel-report-success',
+  AI_ANGEL_REPORT_FAILURE = 'ai-angel-report-failure',
 }
 
 export const sendEmailOptionsSchema = z.object({

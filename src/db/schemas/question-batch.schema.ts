@@ -4,6 +4,10 @@ import { z } from 'zod';
 import { baseEntityColumns } from './base.schema';
 import type { TQuestionBatchMetadata } from '@/common/types/question-batch.types';
 
+export const BatchTypeSchema = z.enum(['TEXT', 'LATEX']);
+export type TBatchType = z.infer<typeof BatchTypeSchema>;
+export const BatchType = BatchTypeSchema.enum;
+
 export const QuestionBatchStatusSchema = z.enum([
   'PENDING',
   'IN_PROGRESS',

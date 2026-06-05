@@ -2,7 +2,10 @@ import { TQuestion } from '@/common/types';
 import { QuestionType } from '@/db/schemas/question.schema';
 
 export function buildQuestionBody(question: TQuestion): string {
-  if (question.questionType === QuestionType.Mcqs) {
+  if (
+    question.questionType === QuestionType.Mcqs ||
+    question.questionType === QuestionType.Closed
+  ) {
     return `Question stem: "${question.stem}"
 Options:
 ${question.options.map((o, i) => `  ${i}. ${o}`).join('\n')}

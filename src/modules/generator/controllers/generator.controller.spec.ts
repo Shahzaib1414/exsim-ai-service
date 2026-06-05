@@ -4,6 +4,7 @@ import { ok, err } from 'neverthrow';
 
 import { GeneratorController } from './generator.controller';
 import { GeneratorService } from '../services/generator.service';
+import { QuestionType } from '@/db/schemas/question.schema';
 import type { TQuestion, TErrorResult } from '@/common/types';
 
 type RouteHandler = (args: {
@@ -15,6 +16,7 @@ const validQuestion: TQuestion = {
   options: ['1', '2', '3', '4'],
   correctAnswerIndex: 3,
   explanation: 'Basic arithmetic: 2 + 2 equals 4.',
+  questionType: QuestionType.Mcqs,
 };
 
 describe('GeneratorController', () => {

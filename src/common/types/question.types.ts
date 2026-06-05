@@ -31,6 +31,13 @@ export const OpenEndedQuestionSchema = z.object({
   solution: z.string(),
 });
 
+export const ClosedQuestionSchema = z.object({
+  stem: z.string(),
+  options: z.array(z.string()).length(2),
+  correctAnswerIndex: z.number().int().min(0).max(1),
+  explanation: z.string(),
+});
+
 export const QuestionSchema = z.union([
   OpenEndedQuestionSchema,
   GroupedQuestionSchema,
@@ -47,13 +54,18 @@ export type TGroupedQuestion = z.infer<typeof GroupedQuestionSchema> & {
   questionType: typeof QuestionType.Grouped;
 };
 export type TOpenEndedQuestion = z.infer<typeof OpenEndedQuestionSchema> & {
-  questionType:
-    | typeof QuestionType.Short
-    | typeof QuestionType.Comprehensive
-    | typeof QuestionType.Closed;
+  questionType: typeof QuestionType.Short | typeof QuestionType.Comprehensive;
 };
 
-export type TQuestion = TMcqsQuestion | TGroupedQuestion | TOpenEndedQuestion;
+export type TClosedQuestion = z.infer<typeof ClosedQuestionSchema> & {
+  questionType: typeof QuestionType.Closed;
+};
+
+export type TQuestion =
+  | TMcqsQuestion
+  | TGroupedQuestion
+  | TOpenEndedQuestion
+  | TClosedQuestion;
 
 export type TQuestionDifficulty = z.infer<typeof QuestionDifficultySchema>;
 
@@ -62,6 +74,7 @@ export type TQuestionDifficulty = z.infer<typeof QuestionDifficultySchema>;
 export const CreateQuestionOptionSchema = z.object({
   option: z.string(),
   isCorrect: z.boolean(),
+  position: z.number().int().min(0),
 });
 
 export const CreateQuestionTagSchema = z.object({

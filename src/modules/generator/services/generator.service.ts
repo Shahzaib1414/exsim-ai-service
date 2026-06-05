@@ -20,9 +20,11 @@ import {
   McqsQuestionSchema,
   GroupedQuestionSchema,
   OpenEndedQuestionSchema,
+  ClosedQuestionSchema,
   TGenerateOneResult,
 } from '@/common/types';
 import { QuestionType, TQuestionType } from '@/db/schemas/question.schema';
+import { BatchType, TBatchType } from '@/db/schemas/question-batch.schema';
 import { EmbeddingService } from '@/modules/embedding/services/embedding.service';
 import { QuestionService } from '@/modules/question/services/question.service';
 import { DeduplicatorService } from '@/modules/deduplicator/services/deduplicator.service';
@@ -41,20 +43,20 @@ const QUESTION_SCHEMAS = {
   [QuestionType.Grouped]: GroupedQuestionSchema,
   [QuestionType.Short]: OpenEndedQuestionSchema,
   [QuestionType.Comprehensive]: OpenEndedQuestionSchema,
-  [QuestionType.Closed]: OpenEndedQuestionSchema,
+  [QuestionType.Closed]: ClosedQuestionSchema,
 };
 
 const QUESTION_PROMPT_INSTRUCTIONS = {
   [QuestionType.Mcqs]:
     'The question must have exactly 4 distinct answer options. Return the index (0-3) of the correct answer and a brief explanation of why it is correct.',
   [QuestionType.Grouped]:
-    'Create a parent question stem only — no options on the parent. Then create between 2 and 5 child questions, each with exactly 4 distinct answer options and the index (0-3) of the correct answer with an explanation.',
+    'Create a grouped question. If the child questions are based on a shared reading passage, story, or data set, embed the full passage text directly inside the "stem" field (e.g., "Read the following passage:\\n\\n[FULL PASSAGE TEXT]\\n\\nAnswer the questions below."). NEVER reference a passage, story, or data in the stem without including the complete text inline — there is no external attachment. The parent stem must have no answer options. Then create between 2 and 5 child questions, each with exactly 4 distinct answer options and the index (0-3) of the correct answer with an explanation.',
   [QuestionType.Short]:
     'Provide a concise model answer in the solution field. No options required.',
   [QuestionType.Comprehensive]:
     'Provide a detailed, structured model answer in the solution field. No options required.',
   [QuestionType.Closed]:
-    'Provide a model answer in the solution field. No options required.',
+    'The question must have exactly 2 distinct answer options (e.g. "Yes" / "No", "True" / "False", or another binary pair appropriate to the question). Return the index (0 or 1) of the correct answer and a brief explanation of why it is correct.',
 };
 
 @Injectable()
@@ -92,6 +94,7 @@ export class GeneratorService extends BaseService<typeof QuestionEmbeddings> {
     difficulty,
     grade,
     questionType,
+    batchType = BatchType.TEXT,
     negativeExamples = [],
     trace,
   }: TGenerateOneInput & {
@@ -117,6 +120,7 @@ export class GeneratorService extends BaseService<typeof QuestionEmbeddings> {
         difficulty,
         grade,
         questionType,
+        batchType,
         groundingContext,
         negativeExamples,
         trace,
@@ -257,6 +261,7 @@ export class GeneratorService extends BaseService<typeof QuestionEmbeddings> {
     difficulty: string,
     grade: number,
     questionType: TQuestionType,
+    batchType: TBatchType,
     groundingContext: string[] = [],
     negativeExamples: string[] = [],
     trace?: ILangfuseTrace,
@@ -271,7 +276,102 @@ export class GeneratorService extends BaseService<typeof QuestionEmbeddings> {
         ? `\nDo NOT generate a question similar to any of the following existing questions:\n${negativeExamples.map((q, i) => `${i + 1}. "${q}"`).join('\n')}\n`
         : '';
 
-    const prompt = `${groundingBlock}Generate a ${questionType} exam question for grade ${grade} students, subject "${subject}", topic "${topic}", difficulty level "${difficulty}".
+    const latexBlock =
+      batchType === BatchType.LATEX
+        ? String.raw`FORMAT REQUIREMENTS — LATEX/TIKZ MODE (mandatory, non-negotiable)
+
+1. Every output field (stem, options, solution, explanation) MUST be valid LaTeX.
+
+2. Include a TikZ diagram in the stem IF AND ONLY IF the topic naturally calls for one.
+   Topics that need a diagram: geometry, coordinate planes, angles, triangles, graphs of functions, data charts, physics setups, circuit diagrams, number lines.
+   Topics that do NOT need a diagram: algebraic manipulation, solving equations, number theory, probability calculations, pure arithmetic.
+   Do NOT force a diagram into a symbolic/algebraic topic. Do NOT omit a diagram from a visual topic.
+
+3. ALL visuals MUST be created using ONLY pure TikZ.
+
+4. Allowed environments:
+   - \begin{tikzpicture} ... \end{tikzpicture}
+   - Inline math: $...$
+   - Display math: \[ ... \]
+
+5. STRICTLY FORBIDDEN environments and packages:
+   - pgfplots
+   - \begin{axis}
+   - tabular
+   - array
+   - matrix
+   - pmatrix
+   - bmatrix
+   - align
+   - align*
+   - equation
+   - cases
+   - tikzcd
+   - circuitikz
+
+6. DO NOT use:
+   - usepackage
+   - \documentclass
+   - \begin{document}
+   - \end{document}
+
+7. The visual MUST be essential to solving the question.
+   Students should need to inspect the diagram to answer correctly.
+
+ANTI-PATTERN — STRICTLY FORBIDDEN:
+   Do NOT write phrases like "In the figure below", "As shown in the diagram",
+   "Refer to the graph", or "See the figure" WITHOUT embedding the TikZ code.
+   If a diagram is needed, the TikZ code MUST appear inline inside the stem string.
+   There is no external figure. If you reference a diagram, it must be present in the stem.
+   Writing a reference phrase without actual TikZ code makes the output INVALID.
+
+8. Preferred TikZ visuals:
+   - Coordinate planes
+   - Geometry diagrams
+   - Angles and triangles
+   - Number lines
+   - Labeled shapes
+   - Simple graphs drawn manually using:
+     * \draw
+     * \node
+     * \fill
+     * \coordinate
+     * plot coordinates
+     * straight line segments
+
+9. If the question would normally require a table,
+   represent the information visually using TikZ nodes and lines instead of tabular.
+
+10. If the question would normally require a graph,
+    draw it manually with TikZ only.
+    NEVER use PGFPLOTS or axis environments.
+
+11. Output must compile correctly in a TikZ-only rendering environment such as node-tikzjax.
+
+12. Do NOT output explanations outside LaTeX strings.
+
+13. Keep TikZ diagrams compact and minimal.
+    Avoid advanced libraries or unsupported TikZ features.
+
+14. Example of VALID output:
+
+\begin{tikzpicture}
+\draw[->] (-1,0) -- (5,0);
+\draw[->] (0,-1) -- (0,5);
+\draw (0,0) -- (4,3);
+\node at (4.3,3) {A};
+\end{tikzpicture}
+
+15. Example of INVALID output:
+   - \begin{axis} ... \end{axis}
+   - \begin{tabular} ... \end{tabular}
+   - \begin{pmatrix} ... \end{pmatrix}
+
+Failure to follow these rules makes the response invalid.
+`
+        : '';
+
+    const prompt = `${groundingBlock}${latexBlock}Generate a ${questionType} exam question for grade ${grade} students, subject "${subject}", topic "${topic}", difficulty level "${difficulty}".
 ${QUESTION_PROMPT_INSTRUCTIONS[questionType]}${negativeBlock}`;
 
     const generation = trace?.generation({

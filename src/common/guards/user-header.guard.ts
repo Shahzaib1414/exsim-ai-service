@@ -14,8 +14,10 @@ import type { DrizzleClient } from '@/db';
 import { roles, userRoles, users } from '@/db/schemas';
 import { UnauthorizedErrorInterceptor } from '@/common/interceptors';
 import { UserRole, TAuthUserReq } from '@/common/types';
+import { AccessControlService } from '@/common/services';
 
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
+import { ROLES_KEY } from '../decorators/roles.decorator';
 
 @Injectable()
 export class UserHeaderGuard implements CanActivate {
@@ -23,6 +25,7 @@ export class UserHeaderGuard implements CanActivate {
     @Inject(DRIZZLE_CLIENT) private readonly db: DrizzleClient,
     private readonly cls: ClsService,
     private readonly reflector: Reflector,
+    private readonly accessControl: AccessControlService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -60,10 +63,20 @@ export class UserHeaderGuard implements CanActivate {
       throw new UnauthorizedErrorInterceptor(['User not found or inactive']);
     }
 
-    if (row.roleName !== UserRole.ADMINISTRATOR) {
-      throw new UnauthorizedErrorInterceptor([
-        'You are not authorized to access this resource',
-      ]);
+    const requiredRoles = this.reflector.getAllAndOverride<UserRole[]>(
+      ROLES_KEY,
+      [context.getHandler(), context.getClass()],
+    );
+
+    if (requiredRoles?.length) {
+      const userRole = row.roleName as UserRole;
+      const minimumRole = requiredRoles[0];
+
+      if (!this.accessControl.isAuthorized(userRole, minimumRole)) {
+        throw new UnauthorizedErrorInterceptor([
+          'You are not authorized to access this resource',
+        ]);
+      }
     }
 
     const user: TAuthUserReq = {

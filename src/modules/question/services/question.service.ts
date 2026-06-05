@@ -105,15 +105,18 @@ export class QuestionService extends BaseService {
       solution:
         question.questionType === QuestionType.Grouped
           ? ''
-          : question.questionType === QuestionType.Mcqs
+          : question.questionType === QuestionType.Mcqs ||
+              question.questionType === QuestionType.Closed
             ? question.explanation
             : question.solution,
       imageUrl: null,
       options:
-        question.questionType === QuestionType.Mcqs
+        question.questionType === QuestionType.Mcqs ||
+        question.questionType === QuestionType.Closed
           ? question.options.map((option, index) => ({
               option,
               isCorrect: index === question.correctAnswerIndex,
+              position: index,
             }))
           : [],
       childQuestions:
@@ -125,6 +128,7 @@ export class QuestionService extends BaseService {
               options: child.options.map((option, index) => ({
                 option,
                 isCorrect: index === child.correctAnswerIndex,
+                position: index,
               })),
               childQuestions: [],
               tags: [
@@ -206,6 +210,7 @@ export class QuestionService extends BaseService {
         payload.options.map((opt) => ({
           Option: opt.option,
           IsCorrect: opt.isCorrect,
+          Position: opt.position,
           QuestionId: row.Id,
         })),
       );

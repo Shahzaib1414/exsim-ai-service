@@ -1,6 +1,10 @@
 import { z } from 'zod';
 
-import { QuestionBatchStatusSchema } from '@/db/schemas/question-batch.schema';
+import {
+  BatchType,
+  BatchTypeSchema,
+  QuestionBatchStatusSchema,
+} from '@/db/schemas/question-batch.schema';
 import { QuestionBatchItemStatusSchema } from '@/db/schemas/question-batch-item.schema';
 import { LlmUsageSchema } from './cost.types';
 import {
@@ -21,6 +25,7 @@ export const QuestionBatchMetadataSchema = z.object({
   difficulty: QuestionDifficultySchema,
   grade: z.number().min(1).max(12),
   questionType: QuestionTypeSchema,
+  batchType: BatchTypeSchema.default(BatchType.TEXT),
 });
 export type TQuestionBatchMetadata = z.infer<
   typeof QuestionBatchMetadataSchema
@@ -31,12 +36,17 @@ export const createQuestionBatchSchema = z.object({
   subject: z.string().min(1),
   topic: z.string().min(1),
   difficulty: QuestionDifficultySchema,
-  count: z.number().int().min(1).max(100),
-  grade: z
-    .number()
+  count: z.coerce
+    .number({ invalid_type_error: 'Count must be a number' })
+    .int({ message: 'Count must be an integer' })
+    .min(1, { message: 'Count must be at least 1' })
+    .max(100, { message: 'Count cannot exceed 100' }),
+  grade: z.coerce
+    .number({ invalid_type_error: 'Grade must be a number' })
     .min(1, { message: 'Grade should not be lower than 1' })
     .max(12, { message: 'Grade cannot be greater than 12' }),
   questionType: QuestionTypeSchema.default(QuestionType.Mcqs),
+  batchType: BatchTypeSchema.default(BatchType.TEXT),
 });
 
 export type TCreateQuestionBatch = z.infer<typeof createQuestionBatchSchema>;
@@ -53,9 +63,49 @@ export const questionBatchItemResponseSchema = z.object({
   totalTokens: z.number().int().default(0),
 });
 
+export const batchItemQuestionOptionSchema = z.object({
+  id: z.string().uuid(),
+  option: z.string(),
+  isCorrect: z.boolean(),
+  position: z.number().int(),
+});
+
+export const batchItemQuestionTagSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  value: z.string(),
+});
+
+export const batchItemQuestionSchema = z
+  .object({
+    id: z.string().uuid(),
+    statement: z.string(),
+    solution: z.string(),
+    imageUrl: z.string().nullable(),
+    options: z.array(batchItemQuestionOptionSchema),
+    tags: z.array(batchItemQuestionTagSchema),
+    childQuestions: z.array(
+      z.object({
+        id: z.string().uuid(),
+        statement: z.string(),
+        solution: z.string(),
+        imageUrl: z.string().nullable(),
+        options: z.array(batchItemQuestionOptionSchema),
+        tags: z.array(batchItemQuestionTagSchema),
+      }),
+    ),
+  })
+  .nullable();
+
+export const questionBatchItemWithQuestionResponseSchema =
+  questionBatchItemResponseSchema.extend({
+    question: batchItemQuestionSchema,
+  });
+
 export const questionBatchResponseSchema = z.object({
   id: z.string().uuid(),
   metadata: QuestionBatchMetadataSchema,
+  batchType: BatchTypeSchema.default(BatchType.TEXT),
   requestedCount: z.number(),
   sampleCount: z.number().int().default(0),
   completedCount: z.number(),
@@ -99,9 +149,21 @@ export type TQuestionBatchPaginatedResponse = z.infer<
   typeof QuestionBatchPaginatedResponseSchema
 >;
 
-export const getQuestionBatchItemsQuerySchema = z.object({
+export const getQuestionBatchItemsQuerySchema = PaginationOptionsSchema.extend({
   status: QuestionBatchItemStatusSchema.optional(),
 });
+
+export const QuestionBatchItemsPaginatedResponseSchema = z.object({
+  items: z.array(questionBatchItemWithQuestionResponseSchema),
+  meta: PaginationMetaSchema,
+});
+
+export type TQuestionBatchItemWithQuestionResponse = z.infer<
+  typeof questionBatchItemWithQuestionResponseSchema
+>;
+export type TQuestionBatchItemsPaginatedResponse = z.infer<
+  typeof QuestionBatchItemsPaginatedResponseSchema
+>;
 
 export type TQuestionBatchItemJobData = {
   user: TAuthUserReq;
@@ -113,6 +175,7 @@ export type TQuestionBatchItemJobData = {
   difficulty: z.infer<typeof QuestionDifficultySchema>;
   grade: number;
   questionType: z.infer<typeof QuestionTypeSchema>;
+  batchType: z.infer<typeof BatchTypeSchema>;
   negativeExampleIds?: string[];
 };
 

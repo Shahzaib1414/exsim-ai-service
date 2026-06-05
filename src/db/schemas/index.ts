@@ -10,3 +10,5 @@ export * from './ai-angel-report.schema';
 export * from './asp-net-identity.schema';
 export * from './category.schema';
 export * from './topic.schema';
+export * from './student-exam-session.schema';
+export * from './student-exam.schema';

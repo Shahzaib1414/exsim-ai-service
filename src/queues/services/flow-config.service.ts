@@ -111,6 +111,7 @@ export class FlowConfigService {
         difficulty: metadata.difficulty,
         grade: metadata.grade,
         questionType: metadata.questionType,
+        batchType: metadata.batchType,
         user,
       } satisfies TQuestionBatchItemJobData,
       opts: {

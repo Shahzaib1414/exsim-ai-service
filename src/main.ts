@@ -12,6 +12,7 @@ import {
   QueryErrorInterceptor,
   ValidationErrorInterceptor,
 } from '@/common/interceptors';
+import { ThrottlerExceptionFilter } from '@/common/filters';
 
 const connectionString = process.env.APPLICATIONINSIGHTS_CONNECTION_STRING;
 if (connectionString) {
@@ -24,6 +25,7 @@ async function bootstrap() {
 
   app.setGlobalPrefix('api');
 
+  app.useGlobalFilters(new ThrottlerExceptionFilter());
   app.useGlobalPipes(new ValidationPipe());
   app.useGlobalInterceptors(new LoggerErrorInterceptor());
   app.useGlobalInterceptors(new QueryErrorInterceptor());

@@ -8,3 +8,4 @@ export * from './services/flow-config.service';
 export * from './decorators/inject-batch-item-queue.decorator';
 export * from './decorators/inject-document-ingestion-queue.decorator';
 export * from './decorators/inject-flow-producer.decorator';
+export * from './decorators/inject-ai-angel-report-queue.decorator';

@@ -9,7 +9,10 @@ export const EMBEDDING_MODEL_NAME = 'text-embedding-3-small';
  * to ensure cosine similarity comparisons are meaningful.
  */
 export function buildEmbeddingText(question: TQuestion): string {
-  if (question.questionType === QuestionType.Mcqs) {
+  if (
+    question.questionType === QuestionType.Mcqs ||
+    question.questionType === QuestionType.Closed
+  ) {
     return `${question.stem}\n${question.options.join('\n')}`;
   }
   if (question.questionType === QuestionType.Grouped) {

@@ -111,7 +111,8 @@ describe('QuestionService', () => {
     it('should return ok({ id }) wrapping the question ID from the DB', async () => {
       const tx = buildMockTx(mockQuestionId);
       mockDb.transaction.mockImplementation(
-        (fn: (tx: typeof tx) => Promise<unknown>) => fn(tx),
+        (fn: (tx: ReturnType<typeof buildMockTx>) => Promise<unknown>) =>
+          fn(tx),
       );
 
       const result = await service.saveQuestion(
@@ -129,7 +130,8 @@ describe('QuestionService', () => {
     it('should insert question with correct statement and solution', async () => {
       const tx = buildMockTx(mockQuestionId);
       mockDb.transaction.mockImplementation(
-        (fn: (tx: typeof tx) => Promise<unknown>) => fn(tx),
+        (fn: (tx: ReturnType<typeof buildMockTx>) => Promise<unknown>) =>
+          fn(tx),
       );
 
       await service.saveQuestion(
@@ -150,7 +152,8 @@ describe('QuestionService', () => {
     it('should insert options after the question row', async () => {
       const tx = buildMockTx(mockQuestionId);
       mockDb.transaction.mockImplementation(
-        (fn: (tx: typeof tx) => Promise<unknown>) => fn(tx),
+        (fn: (tx: ReturnType<typeof buildMockTx>) => Promise<unknown>) =>
+          fn(tx),
       );
 
       await service.saveQuestion(
@@ -173,7 +176,8 @@ describe('QuestionService', () => {
     it('should mark question as Duplicate when duplicateQuestionIds supplied', async () => {
       const tx = buildMockTx(mockQuestionId);
       mockDb.transaction.mockImplementation(
-        (fn: (tx: typeof tx) => Promise<unknown>) => fn(tx),
+        (fn: (tx: ReturnType<typeof buildMockTx>) => Promise<unknown>) =>
+          fn(tx),
       );
 
       await service.saveQuestion(
@@ -214,7 +218,8 @@ describe('QuestionService', () => {
         );
 
       mockDb.transaction.mockImplementation(
-        (fn: (tx: typeof tx) => Promise<unknown>) => fn(tx),
+        (fn: (tx: ReturnType<typeof buildMockTx>) => Promise<unknown>) =>
+          fn(tx),
       );
 
       const result = await service.saveQuestion(
@@ -260,7 +265,8 @@ describe('QuestionService', () => {
       };
 
       mockDb.transaction.mockImplementation(
-        (fn: (tx: typeof tx) => Promise<unknown>) => fn(tx),
+        (fn: (tx: ReturnType<typeof buildMockTx>) => Promise<unknown>) =>
+          fn(tx),
       );
 
       await service.saveQuestion(
