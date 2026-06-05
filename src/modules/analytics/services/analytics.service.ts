@@ -24,7 +24,7 @@ import {
   TSessionHistoryEntry,
   TStoredReportData,
 } from '@/common/types';
-import { serializeError, withLlmRetry } from '@/utils';
+import { detectPhantomFeatures, serializeError, withLlmRetry } from '@/utils';
 import {
   buildAnalyticsPrompt,
   CategoryScore,
@@ -537,7 +537,67 @@ export class AnalyticsService extends BaseService<typeof AIAngelReports> {
       name: 'ai-angel-report',
       metadata: { reportId, sessionId },
     });
-    let generation: ReturnType<typeof trace.generation> | undefined;
+
+    // Pre-compute derived values needed for both prompt and numeric correction
+    const totalTimeMin = overall.TotalTime;
+    const timeTakenMin = Math.round(overall.TotalTimeTaken / 60);
+    const completionRate =
+      overall.TotalQuestions > 0
+        ? Math.round(
+            (overall.AttemptedQuestions / overall.TotalQuestions) * 100,
+          )
+        : 100;
+    const mostRecentPriorScore =
+      historicalSessions.length > 0
+        ? parseFloat(historicalSessions[0].PercentageCorrect)
+        : null;
+    const scoreDelta =
+      mostRecentPriorScore !== null
+        ? Math.round(
+            (parseFloat(overall.PercentageCorrect) - mostRecentPriorScore) * 10,
+          ) / 10
+        : null;
+
+    // Helper: one LLM call with its own Langfuse generation span
+    const runLlmGeneration = async (
+      prompt: string,
+    ): Promise<TAiAngelReport> => {
+      const gen = trace.generation({
+        name: 'llm:ai-angel-report',
+        input: { prompt },
+      });
+      try {
+        const result = await withLlmRetry(
+          (idempotencyKey) =>
+            generateObject({
+              model: this.model,
+              schema: AiAngelReportSchema,
+              system:
+                'You are an educational analytics assistant. Generate structured, empathetic, data-grounded insights for a student based on their exam session performance.',
+              prompt,
+              headers: { 'Idempotency-Key': idempotencyKey },
+            }),
+          {
+            onRetry: (attempt) =>
+              this.metricsService.trackLlmRetry('analytics', attempt),
+          },
+        );
+        gen.end({
+          output: result.object,
+          usage: {
+            input: result.usage.inputTokens ?? 0,
+            output: result.usage.outputTokens ?? 0,
+            total:
+              (result.usage.inputTokens ?? 0) +
+              (result.usage.outputTokens ?? 0),
+          },
+        });
+        return result.object;
+      } catch (error) {
+        gen.end({ output: { error: serializeError(error) } });
+        throw error;
+      }
+    };
 
     try {
       const prompt = buildAnalyticsPrompt({
@@ -558,35 +618,60 @@ export class AnalyticsService extends BaseService<typeof AIAngelReports> {
         previousReport,
       });
 
-      generation = trace.generation({
-        name: 'llm:ai-angel-report',
-        input: { prompt },
-      });
+      let reportObject = await runLlmGeneration(prompt);
 
-      const result = await withLlmRetry(
-        (idempotencyKey) =>
-          generateObject({
-            model: this.model,
-            schema: AiAngelReportSchema,
-            system:
-              'You are an educational analytics assistant. Generate structured, empathetic, data-grounded insights for a student based on their exam session performance.',
-            prompt,
-            headers: { 'Idempotency-Key': idempotencyKey },
-          }),
-        {
-          onRetry: (attempt) =>
-            this.metricsService.trackLlmRetry('analytics', attempt),
-        },
-      );
+      // Guard: detect phantom platform features hallucinated in suggestions
+      const phantomViolations = detectPhantomFeatures(reportObject.suggestions);
+      if (phantomViolations.length > 0) {
+        this.logger.warn({
+          message:
+            'Phantom features detected — retrying with correction prompt',
+          data: { reportId, sessionId, violations: phantomViolations },
+        });
+        this.metricsService.trackSuggestionsPhantomFeatures(
+          reportId,
+          phantomViolations.length,
+        );
 
-      generation.end({
-        output: result.object,
-        usage: {
-          input: result.usage.inputTokens ?? 0,
-          output: result.usage.outputTokens ?? 0,
-          total:
-            (result.usage.inputTokens ?? 0) + (result.usage.outputTokens ?? 0),
-        },
+        // Retry once with explicit correction suffix
+        const correctionSuffix =
+          `\n\nCORRECTION — MANDATORY: Your previous response mentioned ` +
+          `"${phantomViolations.map((v) => v.term).join('", "')}" which do NOT exist on ` +
+          `this platform. Remove ALL mentions of these terms. Use ONLY FullExam, Sectional, ` +
+          `or QuickReview as session type names.`;
+        reportObject = await runLlmGeneration(prompt + correctionSuffix);
+
+        const retryPhantoms = detectPhantomFeatures(reportObject.suggestions);
+        trace.score({
+          name: 'suggestions_quality',
+          value: retryPhantoms.length === 0 ? 1 : 0,
+          comment:
+            retryPhantoms.length > 0
+              ? `Phantom features persist after retry: ${retryPhantoms.map((v) => v.term).join(', ')}`
+              : 'Phantom features resolved after retry',
+        });
+      } else {
+        trace.score({
+          name: 'suggestions_quality',
+          value: 1,
+          comment: 'No phantom features detected',
+        });
+      }
+
+      // Sanity-check: force key numeric fields to match source data exactly
+      reportObject = this.applyNumericCorrections(reportObject, {
+        score: parseFloat(overall.PercentageCorrect),
+        totalQuestions: overall.TotalQuestions,
+        attempted: overall.AttemptedQuestions,
+        correct: overall.CorrectAnswers,
+        incorrect: overall.IncorrectAnswers,
+        skipped: overall.SkippedQuestions,
+        completionRate,
+        timeTakenMinutes: timeTakenMin,
+        allocatedMinutes: totalTimeMin,
+        scoreDelta,
+        cohortSize,
+        reportId,
       });
 
       // Build chronological session history (oldest → newest) for frontend graphs
@@ -595,13 +680,11 @@ export class AnalyticsService extends BaseService<typeof AIAngelReports> {
         : new Date().toISOString().split('T')[0];
 
       const sessionHistoryEntries: TSessionHistoryEntry[] = [
-        // historicalSessions is most-recent-first → reverse for oldest-first
         ...[...historicalSessions].reverse().map((h) => ({
           sessionId: h.SessionId,
           date: h.Date,
           percentage: parseFloat(h.PercentageCorrect),
         })),
-        // Current session is the last (most recent) data point
         {
           sessionId,
           date: currentDate,
@@ -610,7 +693,7 @@ export class AnalyticsService extends BaseService<typeof AIAngelReports> {
       ];
 
       const storedReport: TStoredReportData = {
-        ...result.object,
+        ...reportObject,
         sessionHistory: sessionHistoryEntries,
       };
 
@@ -624,7 +707,6 @@ export class AnalyticsService extends BaseService<typeof AIAngelReports> {
 
       return ok(undefined);
     } catch (error) {
-      generation?.end({ output: { error: serializeError(error) } });
       const message = 'Failed to generate AI Angel report';
       this.logger.error({
         message,
@@ -639,5 +721,108 @@ export class AnalyticsService extends BaseService<typeof AIAngelReports> {
         message: 'failed to generate AI Angel report',
       });
     }
+  }
+
+  private applyNumericCorrections(
+    report: TAiAngelReport,
+    params: {
+      score: number;
+      totalQuestions: number;
+      attempted: number;
+      correct: number;
+      incorrect: number;
+      skipped: number;
+      completionRate: number;
+      timeTakenMinutes: number;
+      allocatedMinutes: number;
+      scoreDelta: number | null;
+      cohortSize: number;
+      reportId: string;
+    },
+  ): TAiAngelReport {
+    const corrections: string[] = [];
+
+    const ss = { ...report.sessionSummary };
+    if (ss.score !== params.score) {
+      corrections.push(`sessionSummary.score: ${ss.score} → ${params.score}`);
+      ss.score = params.score;
+    }
+    if (ss.totalQuestions !== params.totalQuestions) {
+      corrections.push(
+        `sessionSummary.totalQuestions: ${ss.totalQuestions} → ${params.totalQuestions}`,
+      );
+      ss.totalQuestions = params.totalQuestions;
+    }
+    if (ss.attempted !== params.attempted) {
+      corrections.push(
+        `sessionSummary.attempted: ${ss.attempted} → ${params.attempted}`,
+      );
+      ss.attempted = params.attempted;
+    }
+    if (ss.correct !== params.correct) {
+      corrections.push(
+        `sessionSummary.correct: ${ss.correct} → ${params.correct}`,
+      );
+      ss.correct = params.correct;
+    }
+    if (ss.incorrect !== params.incorrect) {
+      corrections.push(
+        `sessionSummary.incorrect: ${ss.incorrect} → ${params.incorrect}`,
+      );
+      ss.incorrect = params.incorrect;
+    }
+    if (ss.skipped !== params.skipped) {
+      corrections.push(
+        `sessionSummary.skipped: ${ss.skipped} → ${params.skipped}`,
+      );
+      ss.skipped = params.skipped;
+    }
+    if (ss.completionRate !== params.completionRate) {
+      corrections.push(
+        `sessionSummary.completionRate: ${ss.completionRate} → ${params.completionRate}`,
+      );
+      ss.completionRate = params.completionRate;
+    }
+    if (ss.timeTakenMinutes !== params.timeTakenMinutes) {
+      corrections.push(
+        `sessionSummary.timeTakenMinutes: ${ss.timeTakenMinutes} → ${params.timeTakenMinutes}`,
+      );
+      ss.timeTakenMinutes = params.timeTakenMinutes;
+    }
+    if (ss.allocatedMinutes !== params.allocatedMinutes) {
+      corrections.push(
+        `sessionSummary.allocatedMinutes: ${ss.allocatedMinutes} → ${params.allocatedMinutes}`,
+      );
+      ss.allocatedMinutes = params.allocatedMinutes;
+    }
+
+    const progress = { ...report.progress };
+    if (progress.scoreDelta !== params.scoreDelta) {
+      corrections.push(
+        `progress.scoreDelta: ${progress.scoreDelta} → ${params.scoreDelta}`,
+      );
+      progress.scoreDelta = params.scoreDelta;
+    }
+
+    const cohortComparison = { ...report.cohortComparison };
+    if (cohortComparison.cohortSize !== params.cohortSize) {
+      corrections.push(
+        `cohortComparison.cohortSize: ${cohortComparison.cohortSize} → ${params.cohortSize}`,
+      );
+      cohortComparison.cohortSize = params.cohortSize;
+    }
+
+    if (corrections.length > 0) {
+      this.logger.warn({
+        message: 'Numeric corrections applied to analytics report',
+        data: { reportId: params.reportId, corrections },
+      });
+      this.metricsService.trackNumericCorrections(
+        params.reportId,
+        corrections.length,
+      );
+    }
+
+    return { ...report, sessionSummary: ss, progress, cohortComparison };
   }
 }

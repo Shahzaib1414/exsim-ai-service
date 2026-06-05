@@ -626,6 +626,18 @@ Instructions — generate all 11 report sections:
     regularly". Every bullet must name exact topic names, percentages, difficulty levels, or counts
     from the session data above — use real numbers, not placeholders.
 
+    PLATFORM EXAM TYPES (the ONLY valid exam types on this platform):
+      • FullExam     — full timed exam using the exam's preset time (ExamTest.TotalTime)
+      • Sectional    — timed section-by-section exam using the section's preset time
+      • QuickReview  — user-configurable session: student picks topic, difficulty, and duration (10–60 min)
+    When recommending a session, use ONLY these exact names. QuickReview is the correct recommendation
+    whenever you want the student to focus on a specific topic or difficulty.
+
+    FORBIDDEN TERMS (these features do not exist on this platform — never use them):
+      practice mode, drill mode, study mode, learning mode, revision mode,
+      untimed, no timer, without a timer, without timer, no time pressure,
+      time pressure, flashcard, spaced repetition, practice drill, timed mode, mock exam
+
     - summary: 2–3 sentences. Name the #1 priority area (the single weakest topic or category from the
       data by name and exact percentage). State the recommended immediate action: which exam to retake,
       at which difficulty, and which specific topic or category to focus on.
@@ -638,16 +650,18 @@ Instructions — generate all 11 report sections:
     - details (4–6 bullets — include all applicable CTAs below; skip any that have no supporting data):
 
       CTA A — RETAKE RECOMMENDATION (always include):
-      "Retake '[ExamTitle]' — [choose: same difficulty if overall < 60%, otherwise the difficulty band
-      where accuracy is lowest from difficultyScores] difficulty filter. Set topic focus to
-      [weakest topic by name]. Target > [current score + 10]% as your next milestone."
-      → Use: ExamTitle, weakest difficultyScore band, weakest topicScore name, PercentageCorrect.
+      "Retake '[ExamTitle]' ([FullExam or Sectional based on exam type]) — set the difficulty filter to
+      [same difficulty if overall < 60%, otherwise the difficulty band with lowest accuracy from
+      difficultyScores]. Focus on [weakest topic by name]. Target > [current score + 10]% next time."
+      → Use: ExamTitle, session exam type (FullExam/Sectional), weakest difficultyScore band,
+        weakest topicScore name, PercentageCorrect.
 
       CTA B — TARGETED TOPIC DRILL (always include — weakest topic):
-      "Before your next full attempt, drill [Weakest Topic by name] in Practice mode (no timer).
-      You scored [X]% there ([CorrectAnswers]/[AttemptedQuestions] correct). Aim to reach [X + 15]%
-      before attempting a timed session on this topic again."
-      → Use: lowest-percentage topic from topicScores with its exact counts.
+      "Before your next full attempt, do a QuickReview session: select topic '[Weakest Topic by name]',
+      difficulty [same difficulty band where topic accuracy was lowest], duration 15–20 min.
+      You scored [X]% on this topic ([CorrectAnswers]/[AttemptedQuestions] correct). Aim for [X + 15]%
+      in QuickReview before returning to a full FullExam or Sectional."
+      → Use: lowest-percentage topic from topicScores with its exact counts and difficulty band.
 
       CTA C — CARELESS ERROR FIX (only if any topic has fast+incorrect ≥ 2):
       "On [Topic with highest fast+incorrect count], you answered [N] questions quickly but got them
@@ -656,27 +670,29 @@ Instructions — generate all 11 report sections:
       → Only emit if quadrant data has fast+incorrect ≥ 2 for any topic. Name the specific topic.
 
       CTA D — DIFFICULTY ESCALATION (only if overall score > 70%):
-      "You scored [X]% overall — solid performance. On [strongest topic/category by name], try
-      stepping up to [Low→Medium / Medium→High] difficulty to build exam-ready depth.
-      Mastering harder questions on your strong topics will make them even more reliable on exam day."
-      → Only emit if PercentageCorrect > 70. Use strongest topic and current session difficulty.
+      "You scored [X]% overall — strong performance. On [strongest topic/category by name], try a
+      QuickReview session at [Low→Medium / Medium→High] difficulty, 20 min, to build exam-ready depth.
+      Mastering harder questions on your strong topics will make them more reliable under exam pressure."
+      → Only emit if PercentageCorrect > 70. Use strongest topic and step-up difficulty from session data.
 
       CTA E — SKIPPED QUESTION RECOVERY (only if skippedTopicStats is non-empty):
-      "You skipped [N] questions in [most-skipped topic by name]. Return to these questions without a
-      timer to identify whether the gap is knowledge-based or confidence-based. Attempting just these
-      skipped questions could recover up to [round(skippedCount/totalQuestions * 100)]% in score."
+      "You skipped [N] questions in [most-skipped topic by name]. Do a QuickReview session for
+      '[most-skipped topic]' at [difficulty] difficulty, 15 min, to work through these at your own pace
+      and identify whether the gap is knowledge-based or confidence-based. Closing this alone could
+      recover up to [round(skippedCount/totalQuestions * 100)]% on your overall score."
       → Only emit if skippedTopicStats has entries. Use exact SkippedCount and calculate score impact.
 
       CTA F — CATEGORY FOCUS (only if any category scores < 50%):
-      "Your [Weakest Category name] accuracy is only [X]%. This category accounts for [N] questions
-      on this exam — improving it has the highest overall impact. Schedule a Practice session filtered
-      to [Weakest Category] topics before your next Mock or Timed attempt."
+      "Your [Weakest Category name] accuracy is only [X]%. This category accounts for [N] questions —
+      improving it has the highest overall impact. Do a QuickReview session for each weak topic in
+      [Weakest Category] before your next FullExam or Sectional attempt."
       → Only emit if any categoryScore PercentageCorrect < 50. Name the category and its question count.
 
     HARD CONSTRAINTS:
     - Do NOT emit a CTA if its condition is not met by the data (no filler bullets).
     - Do NOT use placeholder text — every value in brackets must be replaced with a real figure.
     - Do NOT repeat the same topic in multiple CTAs unless it is genuinely the weakest across all dimensions.
+    - ONLY use exam type names from the PLATFORM EXAM TYPES list above. Any other mode name is invalid.
 
 General rules:
 - Do NOT invent numbers. Every figure must come from the data above.

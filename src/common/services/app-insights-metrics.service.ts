@@ -57,6 +57,35 @@ export class AppInsightsMetricsService {
     });
   }
 
+  trackSuggestionsPhantomFeatures(
+    reportId: string,
+    violationCount: number,
+  ): void {
+    if (!this.client) return;
+    this.client.trackMetric({
+      name: 'ai.analytics.suggestions.phantom_features',
+      value: violationCount,
+      properties: { reportId },
+    });
+    this.client.trackEvent({
+      name: 'SuggestionsPhantomFeaturesDetected',
+      properties: { reportId, violationCount: String(violationCount) },
+    });
+  }
+
+  trackNumericCorrections(reportId: string, correctionCount: number): void {
+    if (!this.client) return;
+    this.client.trackMetric({
+      name: 'ai.analytics.numeric_corrections',
+      value: correctionCount,
+      properties: { reportId },
+    });
+    this.client.trackEvent({
+      name: 'AnalyticsNumericCorrectionApplied',
+      properties: { reportId, correctionCount: String(correctionCount) },
+    });
+  }
+
   trackLlmRetry(service: string, attempt: number): void {
     if (!this.client) return;
     this.client.trackMetric({

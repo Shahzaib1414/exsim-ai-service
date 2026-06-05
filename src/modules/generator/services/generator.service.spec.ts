@@ -54,6 +54,8 @@ const mockEmbeddingService = {
 
 const mockQuestionService = {
   saveQuestion: jest.fn(),
+  getQuestionTexts: jest.fn(),
+  getRecentQuestionsByTopic: jest.fn().mockResolvedValue([]),
 };
 
 const mockDeduplicatorService = {
@@ -233,6 +235,9 @@ describe('GeneratorService', () => {
           ok({ isUnique: false, similarQuestionIds: ['existing-id'] }),
         )
         .mockResolvedValueOnce(ok({ isUnique: true, similarQuestionIds: [] }));
+      mockQuestionService.getQuestionTexts.mockResolvedValue([
+        'Existing similar question text',
+      ]);
       mockValidatorService.validate.mockResolvedValue(
         ok({ isValid: true, issues: [], usage: zeroUsage }),
       );
@@ -262,6 +267,7 @@ describe('GeneratorService', () => {
       mockDeduplicatorService.checkUniqueness.mockResolvedValue(
         ok({ isUnique: false, similarQuestionIds: ['existing-id'] }),
       );
+      mockQuestionService.getQuestionTexts.mockResolvedValue([]);
       mockValidatorService.validate.mockResolvedValue(
         ok({ isValid: true, issues: [], usage: zeroUsage }),
       );
@@ -320,6 +326,10 @@ describe('GeneratorService', () => {
       );
       mockDeduplicatorService.checkUniqueness.mockResolvedValue(
         ok({ isUnique: true, similarQuestionIds: [] }),
+      );
+      // tag runs in parallel with validate — must always return a valid response
+      mockTaggerService.tag.mockResolvedValue(
+        ok({ extraTags: [], usage: zeroUsage }),
       );
     });
 

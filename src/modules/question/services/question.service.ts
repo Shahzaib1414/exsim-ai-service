@@ -4,7 +4,7 @@ import { HttpService } from '@nestjs/axios';
 import { err, ok, Result } from 'neverthrow';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { z } from 'zod';
-import { eq, inArray, sql } from 'drizzle-orm';
+import { desc, eq, inArray, sql } from 'drizzle-orm';
 
 import type { Config } from '@/config';
 import { serializeError } from '@/utils';
@@ -263,10 +263,43 @@ export class QuestionService extends BaseService {
 
   async getQuestionTexts(ids: string[]): Promise<string[]> {
     if (ids.length === 0) return [];
+    // Exclude child questions — their stems reference a parent passage and are
+    // incomplete without it (e.g. "From the passage, what does X mean?").
     const rows = await this.db
       .select({ Statement: Questions.Statement })
       .from(Questions)
-      .where(inArray(Questions.Id, ids));
+      .where(
+        sql`${inArray(Questions.Id, ids)} AND ${Questions.ParentQuestionId} IS NULL`,
+      );
     return rows.map((r) => r.Statement);
+  }
+
+  async getRecentQuestionsByTopic(
+    topic: string,
+    subject: string,
+    limit = 5,
+  ): Promise<string[]> {
+    try {
+      const normalisedTopic = topic.trim().toLowerCase();
+      const normalisedSubject = subject.trim().toLowerCase();
+      // Exclude child questions — their stems depend on parent context and are
+      // meaningless as standalone negative examples.
+      const rows = await this.db
+        .select({ Statement: Questions.Statement })
+        .from(Questions)
+        .innerJoin(Topics, eq(Questions.TopicId, Topics.Id))
+        .innerJoin(Categories, eq(Topics.CategoryId, Categories.Id))
+        .where(
+          sql`LOWER(TRIM(${Topics.Name})) = ${normalisedTopic}
+            AND LOWER(TRIM(${Categories.Name})) = ${normalisedSubject}
+            AND ${Questions.ParentQuestionId} IS NULL`,
+        )
+        .orderBy(desc(Questions.Created))
+        .limit(limit);
+      return rows.map((r) => r.Statement);
+    } catch {
+      // Seeding failure must never abort generation
+      return [];
+    }
   }
 }

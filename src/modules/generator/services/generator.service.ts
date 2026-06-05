@@ -101,16 +101,21 @@ export class GeneratorService extends BaseService<typeof QuestionEmbeddings> {
     trace?: ILangfuseTrace;
     negativeExamples?: string[];
   }): Promise<Result<TGenerateOneResult, TErrorResult>> {
-    // Retrieve grounding context once before the retry loop
-    const groundingContext = await this.fetchGroundingContext(
-      examType,
-      subject,
-      topic,
-      grade,
-      questionType,
-    );
+    // Retrieve grounding context and seed negative examples in parallel — both
+    // are independent pre-loop lookups that never abort generation on failure.
+    const [groundingContext, topicNegatives] = await Promise.all([
+      this.fetchGroundingContext(examType, subject, topic, grade, questionType),
+      this.questionService.getRecentQuestionsByTopic(topic, subject),
+    ]);
 
     let accumulatedUsage: TLlmUsage = ZERO_LLM_USAGE;
+    // Grows across retries: seeded from caller + recent topic questions + dedup hits
+    const activeNegativeExamples: string[] = [
+      ...negativeExamples,
+      ...topicNegatives,
+    ];
+    // Carries validator feedback from one attempt into the next generation prompt
+    let lastValidationIssues: string[] = [];
 
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       // Step 1: Generate question via LLM
@@ -122,7 +127,8 @@ export class GeneratorService extends BaseService<typeof QuestionEmbeddings> {
         questionType,
         batchType,
         groundingContext,
-        negativeExamples,
+        activeNegativeExamples,
+        lastValidationIssues,
         trace,
       );
       if (llmResult.isErr()) return err(llmResult.error);
@@ -157,39 +163,55 @@ export class GeneratorService extends BaseService<typeof QuestionEmbeddings> {
         });
 
         if (attempt < MAX_ATTEMPTS) {
+          // Feed duplicate stems into negative examples so the next attempt avoids them
+          const similarTexts = await this.questionService.getQuestionTexts(
+            dedupResult.value.similarQuestionIds,
+          );
+          activeNegativeExamples.push(...similarTexts);
           continue;
         }
 
         duplicateQuestionIds = dedupResult.value.similarQuestionIds;
       }
 
-      // Step 4: Validate question quality
-      const validationResult = await this.validatorService.validate(
-        question,
-        trace,
-      );
+      // Steps 4+5: Validate and tag in parallel — both receive the same question
+      // and are fully independent; running concurrently saves ~1-2s per question.
+      const [validationResult, tagResult] = await Promise.all([
+        this.validatorService.validate(question, trace),
+        this.taggerService.tag(question, subject, topic, difficulty, trace),
+      ]);
+
       if (validationResult.isErr()) return err(validationResult.error);
+      if (tagResult.isErr()) return err(tagResult.error);
+
       accumulatedUsage = addLlmUsage(
         accumulatedUsage,
-        validationResult.value.usage,
+        addLlmUsage(validationResult.value.usage, tagResult.value.usage),
       );
+
       if (!validationResult.value.isValid) {
+        if (attempt < MAX_ATTEMPTS) {
+          // Carry issues into the next generation attempt as corrective feedback
+          // (discard tagResult — question will be regenerated)
+          lastValidationIssues = validationResult.value.issues;
+          this.logger.warn({
+            message: 'Question failed validation — retrying with feedback',
+            data: { attempt, issues: lastValidationIssues },
+          });
+          continue;
+        }
+        trace?.score({
+          name: 'question_quality',
+          value: 0,
+          comment: `Failed validation: ${validationResult.value.issues.join('; ')}`,
+        });
         return err({
           status: HttpStatus.UNPROCESSABLE_ENTITY,
           message: `question failed validation: ${validationResult.value.issues.join('; ')}`,
         });
       }
 
-      // Step 5: Tag question with metadata
-      const tagResult = await this.taggerService.tag(
-        question,
-        subject,
-        topic,
-        difficulty,
-        trace,
-      );
-      if (tagResult.isErr()) return err(tagResult.error);
-      accumulatedUsage = addLlmUsage(accumulatedUsage, tagResult.value.usage);
+      trace?.score({ name: 'question_quality', value: 1 });
 
       // Step 6: Save question
       const saveResult = await this.questionService.saveQuestion(
@@ -264,6 +286,7 @@ export class GeneratorService extends BaseService<typeof QuestionEmbeddings> {
     batchType: TBatchType,
     groundingContext: string[] = [],
     negativeExamples: string[] = [],
+    validationFeedback: string[] = [],
     trace?: ILangfuseTrace,
   ): Promise<Result<{ question: TQuestion; usage: TLlmUsage }, TErrorResult>> {
     const groundingBlock =
@@ -274,6 +297,11 @@ export class GeneratorService extends BaseService<typeof QuestionEmbeddings> {
     const negativeBlock =
       negativeExamples.length > 0
         ? `\nDo NOT generate a question similar to any of the following existing questions:\n${negativeExamples.map((q, i) => `${i + 1}. "${q}"`).join('\n')}\n`
+        : '';
+
+    const feedbackBlock =
+      validationFeedback.length > 0
+        ? `\nPREVIOUS ATTEMPT REJECTED — a quality auditor found these issues:\n${validationFeedback.map((issue, i) => `${i + 1}. ${issue}`).join('\n')}\nYou MUST fix ALL of the above in this new attempt. Do NOT repeat these mistakes.\n`
         : '';
 
     const latexBlock =
@@ -371,7 +399,7 @@ Failure to follow these rules makes the response invalid.
 `
         : '';
 
-    const prompt = `${groundingBlock}${latexBlock}Generate a ${questionType} exam question for grade ${grade} students, subject "${subject}", topic "${topic}", difficulty level "${difficulty}".
+    const prompt = `${groundingBlock}${latexBlock}${feedbackBlock}Generate a ${questionType} exam question for grade ${grade} students, subject "${subject}", topic "${topic}", difficulty level "${difficulty}".
 ${QUESTION_PROMPT_INSTRUCTIONS[questionType]}${negativeBlock}`;
 
     const generation = trace?.generation({

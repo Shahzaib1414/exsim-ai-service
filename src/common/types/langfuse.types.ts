@@ -19,4 +19,5 @@ export interface ILangfuseTrace {
   generation(params: { name: string; input?: unknown }): ILangfuseGeneration;
   span(params: { name: string; input?: unknown }): ILangfuseSpan;
   update(params: { output?: unknown }): void;
+  score(params: { name: string; value: number; comment?: string }): void;
 }
