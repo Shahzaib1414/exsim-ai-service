@@ -1,0 +1,23 @@
+import { Module } from '@nestjs/common';
+
+import { QuestionModule } from '@/modules/question/question.module';
+import { DeduplicatorModule } from '@/modules/deduplicator';
+import { ValidatorModule } from '@/modules/validator';
+import { TaggerModule } from '@/modules/tagger';
+import { GroundingModule } from '@/modules/grounding';
+import { GeneratorController } from './controllers/generator.controller';
+import { GeneratorService } from './services/generator.service';
+
+@Module({
+  imports: [
+    QuestionModule,
+    DeduplicatorModule,
+    ValidatorModule,
+    TaggerModule,
+    GroundingModule,
+  ],
+  controllers: [GeneratorController],
+  providers: [GeneratorService],
+  exports: [GeneratorService],
+})
+export class GeneratorModule {}

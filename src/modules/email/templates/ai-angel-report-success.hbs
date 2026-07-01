@@ -1,0 +1,43 @@
+<!-- Status badge -->
+<div style="text-align: center; margin-bottom: 28px;">
+  <div style="display: inline-block; background-color: #e8f5e9; border: 1.5px solid #a5d6a7; border-radius: 50px; padding: 8px 20px;">
+    <span style="color: #2e7d32; font-size: 13px; font-weight: 600; letter-spacing: 0.4px;">&#10003;&nbsp; AI Analysis Ready</span>
+  </div>
+</div>
+
+<!-- Heading -->
+<h2 style="margin: 0 0 8px; color: #1a2d45; font-size: 22px; font-weight: 700; text-align: center;">
+  Your AI Angel Report Is Ready
+</h2>
+<p style="margin: 0 0 28px; color: #6b7a8d; font-size: 14px; text-align: center;">
+  Hi {{userName}}, your personalised exam analysis has been generated and is ready to view.
+</p>
+
+<!-- Report details -->
+<table width="100%" cellpadding="0" cellspacing="0" style="border: 1px solid #e1e8f0; border-radius: 6px; overflow: hidden; margin-bottom: 28px;">
+  <tr style="background-color: #f8fafc;">
+    <td colspan="2" style="padding: 12px 16px; border-bottom: 1px solid #e1e8f0;">
+      <span style="color: #4a5568; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px;">Report Details</span>
+    </td>
+  </tr>
+  <tr>
+    <td style="padding: 11px 16px; border-bottom: 1px solid #f0f4f8; color: #6b7a8d; font-size: 13px; width: 40%;">Report ID</td>
+    <td style="padding: 11px 16px; border-bottom: 1px solid #f0f4f8; color: #1a2d45; font-size: 13px; font-weight: 500; font-family: monospace;">{{reportId}}</td>
+  </tr>
+  <tr>
+    <td style="padding: 11px 16px; color: #6b7a8d; font-size: 13px;">Session ID</td>
+    <td style="padding: 11px 16px; color: #1a2d45; font-size: 13px; font-weight: 500; font-family: monospace;">{{sessionId}}</td>
+  </tr>
+</table>
+
+<!-- CTA button -->
+<div style="text-align: center; margin-bottom: 28px;">
+  <a href="{{reportUrl}}"
+     style="display: inline-block; background-color: #1a2d45; color: #ffffff; font-size: 14px; font-weight: 600; text-decoration: none; padding: 14px 32px; border-radius: 6px; letter-spacing: 0.3px;">
+    View My Report
+  </a>
+</div>
+
+<p style="margin: 0; color: #9aa5b4; font-size: 12px; text-align: center;">
+  Generated at {{generatedAt}}
+</p>
