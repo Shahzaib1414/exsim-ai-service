@@ -17,6 +17,7 @@ import { DRIZZLE_CLIENT } from '@/database/database.module';
 import { QuestionType } from '@/db/schemas/question.schema';
 import { buildEmbeddingText } from '@/common/types';
 import type { TQuestion } from '@/common/types';
+import { BatchType } from '@/db';
 
 jest.mock('ai', () => ({
   generateObject: jest.fn(),
@@ -99,6 +100,7 @@ const baseGenerateOneInput = {
   difficulty: 'Low' as const,
   grade: 6,
   questionType: QuestionType.Mcqs,
+  batchType: BatchType.LATEX,
 };
 
 describe('GeneratorService', () => {
